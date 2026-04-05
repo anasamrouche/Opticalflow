@@ -1,7 +1,6 @@
 use pyo3::prelude::*;
 
 type Pixel = f32;
-const DEFAULT_PIXEL: f32 = 0.0;
 
 
 #[pymodule]
@@ -47,146 +46,6 @@ mod horn_schunck_rs {
         ).await?;
 
         Ok(GPU {device: device, queue: queue})
-    }
-
-    async fn jacobi(gpu: &GPU) {
-        let u_slice = u_field.as_slice().unwrap();
-        let v_slice = v_field.as_slice().unwrap();
-    
-        let u_buffer = gpu.device.create_buffer_init(
-            &BufferInitDescriptor {
-                label: Some("U field"),
-                contents: bytemuck::cast_slice(u_slice),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            }
-        );
-    
-        let v_buffer = gpu.device.create_buffer_init(
-            &BufferInitDescriptor {
-                label: Some("V field"),
-                contents: bytemuck::cast_slice(v_slice),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            }
-        );
-    
-        let u_layout = gpu.device.create_bind_group_layout(
-            &BindGroupLayoutDescriptor {
-                label: Some("U layout descriptor"),
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
-                                read_only: false
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None
-                        },
-                        count: None
-                    }
-                ]
-            }
-        );
-    
-        let v_layout = gpu.device.create_bind_group_layout(
-            &BindGroupLayoutDescriptor {
-                label: Some("V layout descriptor"),
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
-                                read_only: false
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None
-                        },
-                        count: None
-                    }
-                ]
-            }
-        );
-    
-        let u_bindgroup = gpu.device.create_bind_group(
-            &BindGroupDescriptor {
-                label: Some("U bind group"),
-                layout: &u_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: u_buffer.as_entire_binding()
-                    }
-                ]
-            },
-        );
-    
-        let v_bindgroup = gpu.device.create_bind_group(
-            &BindGroupDescriptor {
-                label: Some("V bind group"),
-                layout: &v_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: v_buffer.as_entire_binding()
-                    }
-                ]
-            },
-        );
-    
-        let pipeline_layout = gpu.device.create_pipeline_layout(
-            &PipelineLayoutDescriptor {
-                label: Some("Compute pipeline descriptor"),
-                bind_group_layouts: &[
-                    &u_layout,
-                    &v_layout
-                ],
-                immediate_size: 0
-            }
-        );
-    
-        let compute_module = gpu.device.create_shader_module(
-            ShaderModuleDescriptor {
-                label: Some("Compute shader module"),
-                source: wgpu::ShaderSource::Wgsl("./jacobi_method.wgsl".into())
-            }
-        );
-    
-        let compute_pipeline = gpu.device.create_compute_pipeline(
-            &ComputePipelineDescriptor {
-                label: Some("Compute pipeline"),
-                layout: Some(&pipeline_layout),
-                entry_point: Some("main"),
-                module: &compute_module,
-                compilation_options: PipelineCompilationOptions { 
-                    constants: &[],
-                    zero_initialize_workgroup_memory: false
-                },
-                cache: None
-            }
-        );
-    
-        let mut encoder = gpu.device.create_command_encoder(
-            &CommandEncoderDescriptor {
-                label: Some("Compute command encoder"),
-            }
-        );
-    
-        {
-            let mut compute_pass = encoder.begin_compute_pass(
-                &ComputePassDescriptor {
-                    label: Some("Compute pass"),
-                    timestamp_writes: None,
-                }
-            );
-            compute_pass.set_pipeline(&compute_pipeline);
-            compute_pass.set_bind_group(0, &u_bindgroup, &[]);
-            compute_pass.set_bind_group(0, &v_bindgroup, &[]);
-        }
-    
-        gpu.queue.submit(std::iter::once(encoder.finish()));
-
     }
 
     fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> (Array2<f32>, Array2<f32>) {
@@ -290,14 +149,153 @@ mod horn_schunck_rs {
         }
     }
 
-    fn grad_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> (Array2<f32>, Array2<f32>) {
+    // async fn jacobi(gpu: &GPU) {
+    //     let u_slice = u_field.as_slice().unwrap();
+    //     let v_slice = v_field.as_slice().unwrap();
+    
+    //     let u_buffer = gpu.device.create_buffer_init(
+    //         &BufferInitDescriptor {
+    //             label: Some("U field"),
+    //             contents: bytemuck::cast_slice(u_slice),
+    //             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    //         }
+    //     );
+    
+    //     let v_buffer = gpu.device.create_buffer_init(
+    //         &BufferInitDescriptor {
+    //             label: Some("V field"),
+    //             contents: bytemuck::cast_slice(v_slice),
+    //             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    //         }
+    //     );
+    
+    //     let u_layout = gpu.device.create_bind_group_layout(
+    //         &BindGroupLayoutDescriptor {
+    //             label: Some("U layout descriptor"),
+    //             entries: &[
+    //                 BindGroupLayoutEntry {
+    //                     binding: 0,
+    //                     visibility: ShaderStages::COMPUTE,
+    //                     ty: wgpu::BindingType::Buffer {
+    //                         ty: wgpu::BufferBindingType::Storage {
+    //                             read_only: false
+    //                         },
+    //                         has_dynamic_offset: false,
+    //                         min_binding_size: None
+    //                     },
+    //                     count: None
+    //                 }
+    //             ]
+    //         }
+    //     );
+    
+    //     let v_layout = gpu.device.create_bind_group_layout(
+    //         &BindGroupLayoutDescriptor {
+    //             label: Some("V layout descriptor"),
+    //             entries: &[
+    //                 BindGroupLayoutEntry {
+    //                     binding: 1,
+    //                     visibility: ShaderStages::COMPUTE,
+    //                     ty: wgpu::BindingType::Buffer {
+    //                         ty: wgpu::BufferBindingType::Storage {
+    //                             read_only: false
+    //                         },
+    //                         has_dynamic_offset: false,
+    //                         min_binding_size: None
+    //                     },
+    //                     count: None
+    //                 }
+    //             ]
+    //         }
+    //     );
+    
+    //     let u_bindgroup = gpu.device.create_bind_group(
+    //         &BindGroupDescriptor {
+    //             label: Some("U bind group"),
+    //             layout: &u_layout,
+    //             entries: &[
+    //                 BindGroupEntry {
+    //                     binding: 0,
+    //                     resource: u_buffer.as_entire_binding()
+    //                 }
+    //             ]
+    //         },
+    //     );
+    
+    //     let v_bindgroup = gpu.device.create_bind_group(
+    //         &BindGroupDescriptor {
+    //             label: Some("V bind group"),
+    //             layout: &v_layout,
+    //             entries: &[
+    //                 BindGroupEntry {
+    //                     binding: 1,
+    //                     resource: v_buffer.as_entire_binding()
+    //                 }
+    //             ]
+    //         },
+    //     );
+    
+    //     let pipeline_layout = gpu.device.create_pipeline_layout(
+    //         &PipelineLayoutDescriptor {
+    //             label: Some("Compute pipeline descriptor"),
+    //             bind_group_layouts: &[
+    //                 &u_layout,
+    //                 &v_layout
+    //             ],
+    //             immediate_size: 0
+    //         }
+    //     );
+    
+    //     let compute_module = gpu.device.create_shader_module(
+    //         ShaderModuleDescriptor {
+    //             label: Some("Compute shader module"),
+    //             source: wgpu::ShaderSource::Wgsl("./jacobi_method.wgsl".into())
+    //         }
+    //     );
+    
+    //     let compute_pipeline = gpu.device.create_compute_pipeline(
+    //         &ComputePipelineDescriptor {
+    //             label: Some("Compute pipeline"),
+    //             layout: Some(&pipeline_layout),
+    //             entry_point: Some("main"),
+    //             module: &compute_module,
+    //             compilation_options: PipelineCompilationOptions { 
+    //                 constants: &[],
+    //                 zero_initialize_workgroup_memory: false
+    //             },
+    //             cache: None
+    //         }
+    //     );
+    
+    //     let mut encoder = gpu.device.create_command_encoder(
+    //         &CommandEncoderDescriptor {
+    //             label: Some("Compute command encoder"),
+    //         }
+    //     );
+    
+    //     {
+    //         let mut compute_pass = encoder.begin_compute_pass(
+    //             &ComputePassDescriptor {
+    //                 label: Some("Compute pass"),
+    //                 timestamp_writes: None,
+    //             }
+    //         );
+    //         compute_pass.set_pipeline(&compute_pipeline);
+    //         compute_pass.set_bind_group(0, &u_bindgroup, &[]);
+    //         compute_pass.set_bind_group(0, &v_bindgroup, &[]);
+    //     }
+    
+    //     gpu.queue.submit(std::iter::once(encoder.finish()));
 
-    }
+    // }
+    // fn grad_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> (Array2<f32>, Array2<f32>) {
+
+    // }
 
 }
 
 mod utilities {
-    use super::{Pixel, DEFAULT_PIXEL};
+    use super::{Pixel};
     use numpy::ndarray::ArrayView2;
 
     
@@ -305,30 +303,24 @@ mod utilities {
         let image_height = image.shape()[0];
         let image_width = image.shape()[1];
 
+        //Remplacement du bloc conditionnel par du clamping. Ça devrait permettre au compilateur d'appliquer des optimisations
+        //Impossibles à mettre en place avex les blocs match (SIMD)
         let x_previous = x.saturating_sub(1);
         let x_next = (x + 1).min(image_height - 1);
         
         let y_previous = y.saturating_sub(1);
         let y_next = (y + 1).min(image_width - 1);
 
-        let 
+        //Le problème est que les bords de l'image sont un cas particulier à traiter.
+        //Si on est à côté des bords, il faut non plus diviser la différence par 2 mais par 1.
+        //Si on est aux bords, on applique une condition de Neumann pour que la dérivée soit nulle.
+        let x_denominator = (x_next - x_previous) as f32;
+        let y_denominator = (y_next - y_previous) as f32;
 
-        #[allow(unused)]
-        let (x_limit, y_limit) = (image_height - 1, image_width - 1);
-        let mut derivatives: (Pixel, Pixel) = (DEFAULT_PIXEL, DEFAULT_PIXEL);
-        match x {
-            0 => derivatives.0 = image[[x+1, y]] - image[[x, y]],
-            x_limit => derivatives.0 = image[[x, y]] - image[[x-1, y]],
-            _ => derivatives.0 = (image[[x-1, y]] + image[[x+1, y]])/2.0,
-        }
+        let dx = if x_denominator > 0.0 { (image[[x_next, y]] - image[[x_previous, y]])/x_denominator } else { 0.0 };
+        let dy = if y_denominator > 0.0 { (image[[x, y_next]] - image[[x, y_previous]])/y_denominator } else { 0.0 };
 
-        match y {
-            0 => derivatives.1 = image[[x, y+1]] - image[[x, y]],
-            y_limit => derivatives.1 = image[[x, y]] - image[[x, y-1]],
-            _ => derivatives.1 = image[[x, y-1]] + &image[[x, y+1]]/2.0
-        }
-
-        derivatives
+        (dx, dy)
     }
 
     pub fn time_derive(current_image: ArrayView2<'_, f32>, next_image: ArrayView2<'_, f32>, x: usize, y: usize) -> Pixel {
@@ -339,71 +331,21 @@ mod utilities {
         let image_height = image.shape()[0];
         let image_width = image.shape()[1];
 
-        #[allow(unused)]
-        let (x_limit, y_limit) = (image_height - 1, image_width - 1);
-        let (mut top, mut right, mut bottom, mut left, mut top_left, mut top_right, mut bottom_right, mut bottom_left) = (image[[x, y]], image[[x, y]], image[[x, y]], image[[x, y]], image[[x, y]], image[[x, y]], image[[x, y]], image[[x, y]]);
-        match (x, y) {
-            (0, 0) => {
-                bottom = image[[x+1, y]];
-                bottom_right = image[[x+1, y+1]];
-                right = image[[x, y+1]];
-            },
-            (0, y_limit) => {
-                bottom = image[[x+1, y]];
-                bottom_left = image[[x+1, y-1]];
-                left = image[[x, y-1]]; 
-            },
-            (x_limit, 0) => {
-                top = image[[x-1, y]];
-                top_right = image[[x-1, y+1]];
-                right = image[[x, y+1]];
-            },
-            (x_limit, y_limit) => {
-                left = image[[x, y-1]];
-                top_left = image[[x-1, y-1]];
-                top = image[[x-1, y]];
-            },
-            (0, _) => {
-                left = image[[x, y-1]];
-                bottom_left = image[[x+1, y-1]];
-                bottom = image[[x+1, y]];
-                bottom_right = image[[x+1, y+1]];
-                right = image[[x, y+1]];
-            },
-            (_, 0) => {
-                bottom = image[[x+1, y]];
-                bottom_right = image[[x+1, y+1]];
-                right = image[[x, y+1]];
-                top_right = image[[x-1, y+1]];
-                top = image[[x-1, y]];
-            },
-            (_, y_limit) => {
-                bottom = image[[x+1, y]];
-                bottom_left = image[[x+1, y-1]];
-                left = image[[x, y-1]];
-                top_left = image[[x-1, y-1]];
-                top = image[[x-1, y]];
-            },
-            (x_limit, _) => {
-                left = image[[x, y-1]];
-                top_left = image[[x-1, y-1]];
-                top = image[[x-1, y]];
-                top_right = image[[x-1, y+1]];
-                right = image[[x, y+1]];
-            }
-            _ => {
-                top = image[[x-1, y]];
-                top_right = image[[x-1, y+1]];
-                right = image[[x, y+1]];
-                bottom_right = image[[x+1, y+1]];
-                bottom = image[[x+1, y]];
-                bottom_left = image[[x+1, y-1]];
-                left = image[[x, y-1]];
-                top_left = image[[x-1, y-1]];
-            }
-        }
+        let get_clamped = |x_index: usize, y_index: usize| -> f32 {
+            let x_clamped = x_index.clamp(0, image_height - 1);
+            let y_clamped = y_index.clamp(0, image_width - 1);
 
-        (top + right + bottom + left)/6.0 + (top_right + bottom_right + bottom_left + top_left)/12.0
+            return image[[x_clamped, y_clamped]];
+        };
+
+        let closer_pixels = (
+            get_clamped(x-1, y) + get_clamped(x+1, y) + get_clamped(x, y-1) + get_clamped(x, y+1)
+        )/6.0;
+        let further_pixels = (
+            get_clamped(x-1, y-1) + get_clamped(x+1, y-1) + get_clamped(x+1, y+1) + get_clamped(x-1, y+1)
+        )/12.0;
+
+        closer_pixels + further_pixels
     }
 
     // pub fn add_pixels(pixel1: &Pixel, pixel2: &Pixel) -> Pixel {
