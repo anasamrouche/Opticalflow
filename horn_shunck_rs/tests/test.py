@@ -22,7 +22,7 @@ next_image = np.array([
 ], dtype=np.float32)
 
 
-video = cv2.VideoCapture("./tests/pingponghd.mp4")
+video = cv2.VideoCapture("./tests/pingpongsd.mp4")
 frameCount = 80
 frameCount = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 frameWidth = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -43,12 +43,11 @@ video_buffer = np.linalg.norm(temp_buffer, axis=3)
 
 r.print(video_buffer.shape)
 
-optical_flow_x, optical_flow_y = horn_schunck_rs.optical_flow(video_buffer, 50, 20)
-optical_flow_x = optical_flow_x.astype(np.uint8)
-optical_flow_y = optical_flow_y.astype(np.uint8)
+optical_flow_x, optical_flow_y = horn_schunck_rs.solve_gradient_descent(video_buffer, 0.5, 1e-5, 120)
 
-output = cv2.VideoWriter("outputhd.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (frameWidth, frameHeight), isColor=False)
-for frame in optical_flow_x:
-    output.write(frame)
+output = cv2.VideoWriter("outputsd.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (frameWidth, frameHeight), isColor=False)
+for frame_x, frame_y in zip(optical_flow_x, optical_flow_y):
+    movement_detection = (255 * ((frame_x ** 2 + frame_y**2) > 1)).astype(np.uint8)
+    output.write(movement_detection)
 
 output.release()
