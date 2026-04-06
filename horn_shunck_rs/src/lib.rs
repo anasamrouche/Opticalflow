@@ -289,36 +289,69 @@ mod horn_schunck_rs {
 
     // }
 
-    fn gradient_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, step: f32, max_iter: u32) -> (Array2<f32>, Array2<f32>) {
-        let image_height = image1.shape()[0];
-        let image_width = image1.shape()[1];
-
-        let mut u_field = Array2::<f32>::zeros((image_height, image_width));
-        let mut v_field = Array2::<f32>::zeros((image_height, image_width));
-
-        let get_cross_pattern = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
-            let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
-            let x_next = (x_index + 1).min(image_height - 1);
-
-            let y_previous = y_index.saturating_sub(1).clamp(0, image_width - 1);
-            let y_next = (y_index + 1).min(image_width - 1);
-
-            field[[x_previous, y_index]] + field[[x_next, y_index]] + field[[x_index, y_previous]] + field[[x_index, y_next]]
-        };
-
-        for _ in 0..max_iter {
-            for x_index in 0..image_height {
-                for y_index in 0..image_width {
-                    let (Ix, Iy) = space_derive(image1, x_index, y_index);
-                    let It = time_derive(image1, image2, x_index, y_index);
-
-                    u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
-                    v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
+    fn gradient_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, step: f32, max_iter: u32, norm_l2: bool) -> (Array2<f32>, Array2<f32>) {
+        if norm_l2 {
+            let image_height = image1.shape()[0];
+            let image_width = image1.shape()[1];
+    
+            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
+            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+    
+            let get_cross_pattern = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
+                let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
+                let x_next = (x_index + 1).min(image_height - 1);
+    
+                let y_previous = y_index.saturating_sub(1).clamp(0, image_width - 1);
+                let y_next = (y_index + 1).min(image_width - 1);
+    
+                field[[x_previous, y_index]] + field[[x_next, y_index]] + field[[x_index, y_previous]] + field[[x_index, y_next]]
+            };
+    
+            for _ in 0..max_iter {
+                for x_index in 0..image_height {
+                    for y_index in 0..image_width {
+                        let (Ix, Iy) = space_derive(image1, x_index, y_index);
+                        let It = time_derive(image1, image2, x_index, y_index);
+    
+                        u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
+                        v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
+                    }
                 }
             }
+    
+            (u_field, v_field)
         }
+        else {
+            let image_height = image1.shape()[0];
+            let image_width = image1.shape()[1];
+    
+            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
+            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+    
+            let get_cross_pattern = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
+                let x_previous = x_index.saturating_sub(2).clamp(0, image_height - 1);
+                let x_next = (x_index + 2).min(image_height - 1);
+    
+                let y_previous = y_index.saturating_sub(2).clamp(0, image_width - 1);
+                let y_next = (y_index + 2).min(image_width - 1);
+    
+                (field[[x_next, y_index]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_previous, y_index]]).signum() + (field[[x_index, y_next]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_index, y_previous]]).signum()
+            };
+    
+            for _ in 0..max_iter {
+                for x_index in 0..image_height {
+                    for y_index in 0..image_width {
+                        let (Ix, Iy) = space_derive(image1, x_index, y_index);
+                        let It = time_derive(image1, image2, x_index, y_index);
+    
+                        u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
+                        v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
+                    }
+                }
+            }
 
-        (u_field, v_field)
+            (u_field, v_field)
+        }
     }
 
     #[pyfunction]
@@ -328,6 +361,7 @@ mod horn_schunck_rs {
             alpha_squared: f32,
             step: f32,
             max_iter: u32,
+            norm_l2: bool
         )
         -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>) {
             let video_array = video.as_array();
@@ -341,7 +375,7 @@ mod horn_schunck_rs {
                 let current_frame = video_array.index_axis(Axis(0), k);
                 let next_frame = video_array.index_axis(Axis(0), k+1);
 
-                let (u, v) = gradient_descent(current_frame, next_frame, alpha_squared, step, max_iter);
+                let (u, v) = gradient_descent(current_frame, next_frame, alpha_squared, step, max_iter, norm_l2);
 
                 u_field.index_axis_mut(Axis(0), k).assign(&u);
                 v_field.index_axis_mut(Axis(0), k).assign(&v);
@@ -373,7 +407,7 @@ mod utilities {
         let y_next = (y + 1).min(image_width - 1);
 
         //Le problème est que les bords de l'image sont un cas particulier à traiter.
-        //Si on est à côté des bords, il faut non plus diviser la différence par 2 mais par 1.
+        //Si on est à côté des bords, il ne faut plus diviser la différence.
         //Si on est aux bords, on applique une condition de Neumann pour que la dérivée soit nulle.
         let x_denominator = (x_next - x_previous) as f32;
         let y_denominator = (y_next - y_previous) as f32;
