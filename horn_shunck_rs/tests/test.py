@@ -6,12 +6,14 @@ import rich as r
 import cv2
 
 video_paths = {
-    "pingpongsd": "./tests/pingpongsd.mp4",
+    # "pingpongsd": "./tests/pingpongsd.mp4",
     "pingpong": "./tests/pingpong.mp4",
-    "pingponghd": "./tests/pingponghd.mp4"
+    # "pingponghd": "./tests/pingponghd.mp4"
 }
 alphas: List[float] = [0.1, 0.5, 1, 5, 10, 50]
-steps: List[float] = [1e-5, 8e-5, 2e-4, 1e-3]
+steps: List[float] = [1e-3]
+# [1e-5, 8e-5]
+# , 2e-4, 1e-3]
 iters: List[int] = [15, 30, 50]
 
 frameCount = 80
@@ -32,21 +34,17 @@ for video_name, path in video_paths.items():
     Il y a peut-être une méthode appelable pour s'en charger plutôt que de passer par une boucle for
     Il faudrait que je me renseigne
     """
-    temp_buffer = np.empty((frameCount, frameHeight, frameWidth, 3), np.float32)
+    temp_buffer = np.empty((frameCount, frameHeight, frameWidth), np.float32)
     video_buffer = np.empty((frameCount, frameHeight, frameWidth), np.float32)
 
     count = 0
     keep_going = True
     while count < frameCount and keep_going:
-        keep_going, temp_buffer[count] = video.read()
+        keep_going, new_frame = video.read()
+        temp_buffer[count] = cv2.cvtColor(new_frame, cv2.COLOR_BGR2GRAY)
         count += 1
 
-    """
-    Conversion de l'array représentant les couleurs en un array tenant seulement compte de la luminosité
-    Il doit sûrement y avoir des formules plus élaborées et performantes pour calculer la luminosité d'un pixel en fonction
-    des couleurs (me renseigner aussi dessus).
-    """
-    video_buffer = np.linalg.norm(temp_buffer, axis=3)
+    video_buffer = temp_buffer
     r.print(f"Vidéo de taille {video_buffer.shape[1:]} et de longueur {video_buffer.shape[0]}")
     """
     Résolution par la méthode du gradient
@@ -61,12 +59,12 @@ for video_name, path in video_paths.items():
                     case _: output_name = f"tests/Norm_L1/gradient_results/high_quality/{alpha_squared}_{step}_{MaxIter}.mp4"
                 if not os.path.exists(os.path.split(output_name)[0]):
                     os.makedirs(os.path.split(output_name)[0])
-                optical_flow_x, optical_flow_y = horn_schunck_rs.solve_gradient_descent(video_buffer, alpha_squared, step, MaxIter, False)
                 r.print(f"Résolution par gradient avec paramètres alpha squared : {alpha_squared}, pas: {step}, itérations max : {MaxIter}")
+                optical_flow_x, optical_flow_y = horn_schunck_rs.solve_gradient_descent(video_buffer, alpha_squared, step, MaxIter, False)
                 output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), fps, (frameWidth, frameHeight), isColor=False) #type: ignore
 
                 for frame_x, frame_y in zip(optical_flow_x, optical_flow_y):
-                    movement_detection = (255 * ((frame_x ** 2 + frame_y**2) > 0.5)).astype(np.uint8)
+                    movement_detection = (255 * ((frame_x ** 2 + frame_y**2) > 0.1)).astype(np.uint8)
                     output.write(movement_detection)
                 output.release()
                 r.print(f"Fichier {output_name} écrit.")

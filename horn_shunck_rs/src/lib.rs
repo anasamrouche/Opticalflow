@@ -87,6 +87,7 @@ mod horn_schunck_rs {
         )
     }
 
+    #[pyfunction]
     fn solve_gauss_seidel<'py>(
             py: Python<'_>,
             video: PyReadonlyArray3<f32, '_>,
