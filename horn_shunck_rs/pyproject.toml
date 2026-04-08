@@ -16,3 +16,8 @@ dependencies = [
     "opencv-python>=4.13.0.92",
     "rich>=14.3.3",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

@@ -7,19 +7,20 @@ from typing import Dict, List
 from time import time
 
 video_paths = {
-    # "pingpongsd": "./tests/pingpongsd.mp4",
-#     "pingpong": "./tests/pingpong.mp4",
+    "pingpongsd": "./tests/pingpongsd.mp4",
+    "pingpong": "./tests/pingpong.mp4",
     "pingponghd": "./tests/pingponghd.mp4"
 }
-alphas: List[float] = [0.001]
-steps: List[float] = [5e-5] 
-                    #   1e-3]
-                    #   , 2e-4, 1e-3]
-iters: List[int] = [50, 500]
+
+parameters: Dict["str", List[float|int]] = {
+    "alphas": [0.001],
+    "steps": [5e-5],
+    "iteration_limits": [50, 500]
+}
 
 frameCount = 80
 
-def generate_videos(video_set: Dict[str, str]):
+def generate_videos_by_gradient(video_set: Dict[str, str]):
     for video_name, path in video_set.items():
         r.print(f"Traitement du fichier: {path}")
         """
@@ -52,10 +53,10 @@ def generate_videos(video_set: Dict[str, str]):
         Résolution par la méthode du gradient
         Et écriture de la vidéo obtenue
         """
-        for alpha_squared in alphas:
-            for step in steps:
-                for MaxIter in iters:
-                    counts = np.zeros(MaxIter)
+        for alpha_squared in parameters["alphas"]:
+            for step in parameters["steps"]:
+                for MaxIter in parameters["iteration_limits"]:
+                    counts = np.zeros(MaxIter) #type: ignore
                     match video_name:
                         case "pingpongsd": output_name = f"tests/Norm_L1/gradient_results/low_quality/{alpha_squared}_{step}_{MaxIter}.mp4"
                         case "pingpong": output_name = f"tests/Norm_L1/gradient_results/standard_quality/{alpha_squared}_{step}_{MaxIter}.mp4"
@@ -73,7 +74,7 @@ def generate_videos(video_set: Dict[str, str]):
                     r.print(counts)
                     r.print(f"Fichier {output_name} écrit.", end="\n\n")
 
-generate_videos(video_paths)
+generate_videos_by_gradient(video_paths)
 
 # def lucas_kanade_sparse(video_path, max_corners=100):
 #     """
