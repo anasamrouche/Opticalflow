@@ -7,10 +7,30 @@ type Pixel = f32;
 mod horn_schunck_rs {
     use anyhow::Ok;
     use pyo3::prelude::*;
-    use numpy::{IntoPyArray, PyReadonlyArray3, ndarray::{Array2, Array3, ArrayView2, Axis}, PyArray3};
+    use numpy::{IntoPyArray, PyArray1, PyArray3, PyReadonlyArray3, ToPyArray, ndarray::{Array2, Array3, ArrayView2, Axis}};
     use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BufferUsages, ComputePassDescriptor, ComputePipelineDescriptor, Device, ExperimentalFeatures, Features, InstanceDescriptor, InstanceFlags, Limits, MemoryBudgetThresholds, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, RequestAdapterOptions, ShaderModule, ShaderModuleDescriptor, ShaderStages, util::{BufferInitDescriptor, DeviceExt}, wgc::device, wgt::{CommandEncoderDescriptor, DeviceDescriptor}};
     
     use crate::{utilities::{get_average, space_derive, time_derive}};
+
+    // #[pyclass]
+    // struct Adam {
+    //     step_size: f32,
+    //     beta1: f32,
+    //     beta2: f32,
+    //     tol: f32,
+    //     first_moment: Vec<f32>,
+    //     second_moment: Vec<f32>,
+    //     step: u32
+    // }
+
+    // #[pymethods]
+    // impl Adam {
+    //     #[new]
+    //     #[pyo3(signature =(step_size=1e-3, beta1=0.99, beta2=0.999, tol=1e-8))]
+    //     fn new(step_size: f32, beta1: f32, beta2: f32, tol: f32) -> Self {
+    //         Self { step_size, beta1, beta2, tol, first_moment: Vec::new(), second_moment: Vec::new(), step:0 }
+    //     }
+    // }
 
     struct GPU {
         device: Device,
@@ -290,7 +310,7 @@ mod horn_schunck_rs {
 
     // }
 
-    fn gradient_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, step: f32, max_iter: u32, norm_l2: bool) -> (Array2<f32>, Array2<f32>) {
+    fn gradient_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, step: f32, max_iter: u32, tol: f32, norm_l2: bool) -> (Array2<f32>, Array2<f32>, u32) {
         if norm_l2 {
             let image_height = image1.shape()[0];
             let image_width = image1.shape()[1];
@@ -307,20 +327,38 @@ mod horn_schunck_rs {
     
                 field[[x_previous, y_index]] + field[[x_next, y_index]] + field[[x_index, y_previous]] + field[[x_index, y_next]]
             };
+
+            let get_gradient_norm = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
+                let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
+                let x_next = (x_index + 1).min(image_height - 1);
     
+                let y_previous = y_index.saturating_sub(1).clamp(0, image_width - 1);
+                let y_next = (y_index + 1).min(image_width - 1);
+    
+                (field[[x_next, y_index]] - field[[x_previous, y_index]]).powi(2)/4.0 + (field[[x_index, y_next]] - field[[x_index, y_previous]]).powi(2)/4.0
+            };
+
+            let mut count = 0;
             for _ in 0..max_iter {
+                count += 1;
+                let mut previous_evaluation: f32 = 0.0;
+                let mut next_evaluation: f32 = 0.0;
                 for x_index in 0..image_height {
                     for y_index in 0..image_width {
                         let (Ix, Iy) = space_derive(image1, x_index, y_index);
                         let It = time_derive(image1, image2, x_index, y_index);
-    
+                        
+                        next_evaluation += (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It).powi(2) + get_gradient_norm(&u_field, x_index, y_index) + get_gradient_norm(&v_field, x_index, y_index);
                         u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
                         v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
                     }
                 }
+                if (next_evaluation - previous_evaluation).abs() < tol {break};
+                previous_evaluation = next_evaluation;
+                next_evaluation = 0.0;
             }
     
-            (u_field, v_field)
+            (u_field, v_field, count)
         }
         else {
             let image_height = image1.shape()[0];
@@ -338,8 +376,10 @@ mod horn_schunck_rs {
     
                 (field[[x_next, y_index]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_previous, y_index]]).signum() + (field[[x_index, y_next]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_index, y_previous]]).signum()
             };
-    
+
+            let mut count = 0;
             for _ in 0..max_iter {
+                count += 1;
                 for x_index in 0..image_height {
                     for y_index in 0..image_width {
                         let (Ix, Iy) = space_derive(image1, x_index, y_index);
@@ -351,7 +391,7 @@ mod horn_schunck_rs {
                 }
             }
 
-            (u_field, v_field)
+            (u_field, v_field, count)
         }
     }
 
@@ -362,9 +402,10 @@ mod horn_schunck_rs {
             alpha_squared: f32,
             step: f32,
             max_iter: u32,
+            tol: f32,
             norm_l2: bool
         )
-        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>) {
+        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>, Py<PyArray1<u32>>) {
             let video_array = video.as_array();
 
             let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
@@ -372,19 +413,23 @@ mod horn_schunck_rs {
             let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
             let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
 
+            let mut counts: Vec<u32> = Vec::new();
             for k in 0..frame_count-1 {
                 let current_frame = video_array.index_axis(Axis(0), k);
                 let next_frame = video_array.index_axis(Axis(0), k+1);
 
-                let (u, v) = gradient_descent(current_frame, next_frame, alpha_squared, step, max_iter, norm_l2);
+                let (u, v, count) = gradient_descent(current_frame, next_frame, alpha_squared, step, max_iter, tol, norm_l2);
 
                 u_field.index_axis_mut(Axis(0), k).assign(&u);
                 v_field.index_axis_mut(Axis(0), k).assign(&v);
+
+                counts.push(count);
             }
 
             (
                 u_field.into_pyarray(py).unbind(),
-                v_field.into_pyarray(py).unbind()
+                v_field.into_pyarray(py).unbind(),
+                counts.to_pyarray(py).unbind()
             )
         }
 
@@ -443,44 +488,4 @@ mod utilities {
 
         closer_pixels + further_pixels
     }
-
-    // pub fn add_pixels(pixel1: &Pixel, pixel2: &Pixel) -> Pixel {
-    //     let mut returned_DEFAULT_PIXEL: Pixel = DEFAULT_PIXEL;
-    //     returned_DEFAULT_PIXEL
-    // }
-
-    // pub fn substract_DEFAULT_PIXELs(DEFAULT_PIXEL1: &DEFAULT_PIXEL, DEFAULT_PIXEL2: &DEFAULT_PIXEL) -> DEFAULT_PIXEL {
-    //     let mut returned_DEFAULT_PIXEL: DEFAULT_PIXEL = DEFAULT_PIXEL;
-    //     for k in 0..3 {
-    //         returned_DEFAULT_PIXEL = DEFAULT_PIXEL1 - DEFAULT_PIXEL2;
-    //     }
-    //     returned_DEFAULT_PIXEL
-    // }
-
-    // pub fn divide_DEFAULT_PIXEL(DEFAULT_PIXEL: &DEFAULT_PIXEL, divisor: f32) -> DEFAULT_PIXEL {
-    //     let mut returned_DEFAULT_PIXEL: DEFAULT_PIXEL = DEFAULT_PIXEL;
-    //     for k in 0..3 {
-    //         returned_DEFAULT_PIXEL = DEFAULT_PIXEL/divisor;
-    //     }
-    //     returned_DEFAULT_PIXEL
-    // }
 }
-
-// mod kernel {
-//     use pyo3::prelude::*;
-
-//     struct Kernel<const S: usize> {
-//         values: [[f32; S]; S]
-//     }
-
-//     struct Image<const S: usize> {
-//         size: usize,
-//         content: [[DEFAULT_PIXEL; S]; S]
-//     }
-
-//     impl<const S: usize> Image<S> {
-//         fn convolution<const K: usize>(self, kernel: Kernel<K>) {
-
-//         }
-//     }
-// }
