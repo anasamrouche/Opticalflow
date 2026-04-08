@@ -7,17 +7,22 @@ type Pixel = f32;
 mod horn_schunck_rs {
     use pyo3::prelude::*;
     use numpy::{IntoPyArray, PyArray1, PyArray3, PyReadonlyArray3, ToPyArray, ndarray::{Array2, Array3, ArrayView2, Axis}};
+    use ndarray::s;
     
     use crate::{utilities::{get_average, space_derive, time_derive}};
 
-    fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> (Array2<f32>, Array2<f32>) {
+    fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32, tol: f32) -> (Array2<f32>, Array2<f32>, u32) {
         let image_height = image1.shape()[0];
         let image_width = image1.shape()[1];
 
         let mut u_field = Array2::<f32>::zeros((image_height, image_width));
         let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+        let mut count = 0;
+        let mut previous_evaluation = 0.0;
+        let mut next_evaluation = 0.0;
 
         for _ in 0..max_iter {
+            count += 1;
             let mut x_derivative = Array2::<f32>::zeros((image_height, image_width));
             let mut y_derivative = Array2::<f32>::zeros((image_height, image_width));
             let mut time_derivative = Array2::<f32>::zeros((image_height, image_width));
@@ -36,16 +41,18 @@ mod horn_schunck_rs {
                     let u_average = get_average(u_field.view(), x, y);
                     let v_average = get_average(v_field.view(), x, y);
 
-                    u_field[[x, y]] = u_average - x_derivative[[x, y]] * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powf(2.0) + y_derivative[[x, y]].powf(2.0));
+                    u_field.slice_mut(s![.., ..]) = u_average - x_derivative.slice_mut(s![.., ..]) * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powf(2.0) + y_derivative[[x, y]].powf(2.0));
                     v_field[[x, y]] = v_average - y_derivative[[x, y]] * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powf(2.0) + y_derivative[[x, y]].powf(2.0));
                 }
             }
+
         }
 
 
         (
             u_field,
-            v_field
+            v_field,
+            count
         )
     }
 
@@ -55,28 +62,32 @@ mod horn_schunck_rs {
             video: PyReadonlyArray3<f32, '_>,
             alpha_squared: f32,
             max_iter: u32,
+            tol: f32
         )
-        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>) {
+        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>, Py<PyArray1<u32>>) {
         let video_array = video.as_array();
 
         let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
 
         let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
         let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
+        let mut counts: Vec<u32> = Vec::with_capacity(frame_count);
 
         for k in 0..frame_count-1 {
             let current_frame = video_array.index_axis(Axis(0), k);
             let next_frame = video_array.index_axis(Axis(0), k+1);
 
-            let (u, v) = gauss_seidel(current_frame, next_frame, alpha_squared, max_iter);
+            let (u, v, count) = gauss_seidel(current_frame, next_frame, alpha_squared, max_iter, tol);
 
             u_field.index_axis_mut(Axis(0), k).assign(&u);
             v_field.index_axis_mut(Axis(0), k).assign(&v);
+            counts[k] = count
         }
 
         (
             u_field.into_pyarray(py).unbind(),
-            v_field.into_pyarray(py).unbind()
+            v_field.into_pyarray(py).unbind(),
+            counts.to_pyarray(py).unbind()
         )
     }
 
@@ -84,10 +95,6 @@ mod horn_schunck_rs {
         if norm_l2 {
             let image_height = image1.shape()[0];
             let image_width = image1.shape()[1];
-    
-            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
-            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
-    
             let get_cross_pattern = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
                 let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
                 let x_next = (x_index + 1).min(image_height - 1);
@@ -107,6 +114,10 @@ mod horn_schunck_rs {
     
                 (field[[x_next, y_index]] - field[[x_previous, y_index]]).powi(2)/4.0 + (field[[x_index, y_next]] - field[[x_index, y_previous]]).powi(2)/4.0
             };
+    
+            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
+            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+    
 
             let mut count = 0;
             for _ in 0..max_iter {
@@ -118,7 +129,7 @@ mod horn_schunck_rs {
                         let (Ix, Iy) = space_derive(image1, x_index, y_index);
                         let It = time_derive(image1, image2, x_index, y_index);
                         
-                        next_evaluation += (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It).powi(2) + get_gradient_norm(&u_field, x_index, y_index) + get_gradient_norm(&v_field, x_index, y_index);
+                        next_evaluation += (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It).powi(2) + alpha_squared * get_gradient_norm(&u_field, x_index, y_index) + get_gradient_norm(&v_field, x_index, y_index);
                         u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
                         v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
                     }
@@ -147,18 +158,34 @@ mod horn_schunck_rs {
                 (field[[x_next, y_index]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_previous, y_index]]).signum() + (field[[x_index, y_next]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_index, y_previous]]).signum()
             };
 
+            let get_gradient_norm = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
+                let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
+                let x_next = (x_index + 1).min(image_height - 1);
+    
+                let y_previous = y_index.saturating_sub(1).clamp(0, image_width - 1);
+                let y_next = (y_index + 1).min(image_width - 1);
+    
+                (field[[x_next, y_index]] - field[[x_previous, y_index]]).powi(2)/4.0 + (field[[x_index, y_next]] - field[[x_index, y_previous]]).powi(2)/4.0
+            };
+
             let mut count = 0;
             for _ in 0..max_iter {
                 count += 1;
+                let mut previous_evaluation: f32 = 0.0;
+                let mut next_evaluation: f32 = 0.0;
                 for x_index in 0..image_height {
                     for y_index in 0..image_width {
                         let (Ix, Iy) = space_derive(image1, x_index, y_index);
                         let It = time_derive(image1, image2, x_index, y_index);
     
+                        next_evaluation += (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It).powi(2) + alpha_squared * get_gradient_norm(&u_field, x_index, y_index) + get_gradient_norm(&v_field, x_index, y_index);
                         u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
                         v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
                     }
                 }
+                if (next_evaluation - previous_evaluation).abs() < tol {break};
+                    previous_evaluation = next_evaluation;
+                    next_evaluation = 0.0;
             }
 
             (u_field, v_field, count)
@@ -183,7 +210,7 @@ mod horn_schunck_rs {
             let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
             let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
 
-            let mut counts: Vec<u32> = Vec::new();
+            let mut counts: Vec<u32> = Vec::with_capacity(frame_count);
             for k in 0..frame_count-1 {
                 let current_frame = video_array.index_axis(Axis(0), k);
                 let next_frame = video_array.index_axis(Axis(0), k+1);
@@ -193,7 +220,7 @@ mod horn_schunck_rs {
                 u_field.index_axis_mut(Axis(0), k).assign(&u);
                 v_field.index_axis_mut(Axis(0), k).assign(&v);
 
-                counts.push(count);
+                counts[k] = count;
             }
 
             (
