@@ -5,54 +5,103 @@ type Pixel = f32;
 
 #[pymodule]
 mod horn_schunck_rs {
+    use anyhow::Ok;
     use pyo3::prelude::*;
     use numpy::{IntoPyArray, PyArray1, PyArray3, PyReadonlyArray3, ToPyArray, ndarray::{Array2, Array3, ArrayView2, Axis}};
-    use ndarray::s;
+    use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BufferUsages, ComputePassDescriptor, ComputePipelineDescriptor, Device, ExperimentalFeatures, Features, InstanceDescriptor, InstanceFlags, Limits, MemoryBudgetThresholds, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, RequestAdapterOptions, ShaderModule, ShaderModuleDescriptor, ShaderStages, util::{BufferInitDescriptor, DeviceExt}, wgc::device, wgt::{CommandEncoderDescriptor, DeviceDescriptor}};
     
     use crate::{utilities::{get_average, space_derive, time_derive}};
 
-    fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32, tol: f32) -> (Array2<f32>, Array2<f32>, u32) {
+    // #[pyclass]
+    // struct Adam {
+    //     step_size: f32,
+    //     beta1: f32,
+    //     beta2: f32,
+    //     tol: f32,
+    //     first_moment: Vec<f32>,
+    //     second_moment: Vec<f32>,
+    //     step: u32
+    // }
+
+    // #[pymethods]
+    // impl Adam {
+    //     #[new]
+    //     #[pyo3(signature =(step_size=1e-3, beta1=0.99, beta2=0.999, tol=1e-8))]
+    //     fn new(step_size: f32, beta1: f32, beta2: f32, tol: f32) -> Self {
+    //         Self { step_size, beta1, beta2, tol, first_moment: Vec::new(), second_moment: Vec::new(), step:0 }
+    //     }
+    // }
+
+    // struct GPU {
+    //     device: Device,
+    //     queue: Queue,
+    // }
+    
+    // async fn set_up() -> anyhow::Result<GPU> {
+    //     let instance = wgpu::Instance::new(
+    //             &InstanceDescriptor{
+    //                 backends: wgpu::Backends::PRIMARY,
+    //                 flags: InstanceFlags::DEBUG | InstanceFlags::VALIDATION,
+    //                 ..Default::default()
+    //             }
+    //         );
+    
+    //     let adapter = instance.request_adapter(
+    //         &RequestAdapterOptions{
+    //             power_preference: wgpu::PowerPreference::None,
+    //             force_fallback_adapter: false,
+    //             compatible_surface: None
+    //         }
+    //     ).await?;
+
+    //     let (device, queue) = adapter.request_device(
+    //         &DeviceDescriptor{
+    //             label: Some("Device"),
+    //             required_features: Features::empty(),
+    //             experimental_features: ExperimentalFeatures::disabled(),
+    //             required_limits: Limits::default(),
+    //             memory_hints: Default::default(),
+    //             trace: wgpu::Trace::Off,
+    //         }
+    //     ).await?;
+
+    //     Ok(GPU {device: device, queue: queue})
+    // }
+
+    fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> (Array2<f32>, Array2<f32>) {
         let image_height = image1.shape()[0];
         let image_width = image1.shape()[1];
 
         let mut u_field = Array2::<f32>::zeros((image_height, image_width));
         let mut v_field = Array2::<f32>::zeros((image_height, image_width));
-        let mut count = 0;
-        let mut previous_evaluation = 0.0;
-        let mut next_evaluation = 0.0;
-
-        for _ in 0..max_iter {
-            count += 1;
-            let mut x_derivative = Array2::<f32>::zeros((image_height, image_width));
-            let mut y_derivative = Array2::<f32>::zeros((image_height, image_width));
-            let mut time_derivative = Array2::<f32>::zeros((image_height, image_width));
-
-            for x in 0..image_height {
-                for y in 0..image_width {
-                    let (dx, dy) = space_derive(image1, x, y);
-                    x_derivative[[x, y]] = dx;
-                    y_derivative[[x, y]] = dy;
-                    time_derivative[[x, y]] = time_derive(image1, image2, x, y);
-                }
+        
+        let mut x_derivative = Array2::<f32>::zeros((image_height, image_width));
+        let mut y_derivative = Array2::<f32>::zeros((image_height, image_width));
+        let mut time_derivative = Array2::<f32>::zeros((image_height, image_width));
+        for x in 0..image_height {
+            for y in 0..image_width {
+                let (dx, dy) = space_derive(image1, x, y);
+                x_derivative[[x, y]] = dx;
+                y_derivative[[x, y]] = dy;
+                time_derivative[[x, y]] = time_derive(image1, image2, x, y);
             }
-
+        }
+        for _ in 0..max_iter {
             for x in 0..image_height {
                 for y in 0..image_width {
                     let u_average = get_average(u_field.view(), x, y);
                     let v_average = get_average(v_field.view(), x, y);
 
-                    u_field.slice_mut(s![.., ..]) = u_average - x_derivative.slice_mut(s![.., ..]) * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powf(2.0) + y_derivative[[x, y]].powf(2.0));
-                    v_field[[x, y]] = v_average - y_derivative[[x, y]] * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powf(2.0) + y_derivative[[x, y]].powf(2.0));
+                    u_field[[x, y]] = u_average - x_derivative[[x, y]] * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powi(2) + y_derivative[[x, y]].powi(2));
+                    v_field[[x, y]] = v_average - y_derivative[[x, y]] * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powi(2) + y_derivative[[x, y]].powi(2));
                 }
             }
-
         }
 
 
         (
             u_field,
-            v_field,
-            count
+            v_field
         )
     }
 
@@ -62,39 +111,39 @@ mod horn_schunck_rs {
             video: PyReadonlyArray3<f32, '_>,
             alpha_squared: f32,
             max_iter: u32,
-            tol: f32
         )
-        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>, Py<PyArray1<u32>>) {
+        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>) {
         let video_array = video.as_array();
 
         let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
 
         let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
         let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
-        let mut counts: Vec<u32> = Vec::with_capacity(frame_count);
 
         for k in 0..frame_count-1 {
             let current_frame = video_array.index_axis(Axis(0), k);
             let next_frame = video_array.index_axis(Axis(0), k+1);
 
-            let (u, v, count) = gauss_seidel(current_frame, next_frame, alpha_squared, max_iter, tol);
+            let (u, v) = gauss_seidel(current_frame, next_frame, alpha_squared, max_iter);
 
             u_field.index_axis_mut(Axis(0), k).assign(&u);
             v_field.index_axis_mut(Axis(0), k).assign(&v);
-            counts[k] = count
         }
 
         (
             u_field.into_pyarray(py).unbind(),
-            v_field.into_pyarray(py).unbind(),
-            counts.to_pyarray(py).unbind()
+            v_field.into_pyarray(py).unbind()
         )
     }
 
-    fn gradient_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, step: f32, max_iter: u32, tol: f32, norm_l2: bool) -> (Array2<f32>, Array2<f32>, u32) {
-        if norm_l2 {
+    fn gradient_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, step: f32, max_iter: u32, tol: f32, normL2: bool) -> (Array2<f32>, Array2<f32>, u32) {
+        if normL2 {
             let image_height = image1.shape()[0];
             let image_width = image1.shape()[1];
+    
+            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
+            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+    
             let get_cross_pattern = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
                 let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
                 let x_next = (x_index + 1).min(image_height - 1);
@@ -114,10 +163,6 @@ mod horn_schunck_rs {
     
                 (field[[x_next, y_index]] - field[[x_previous, y_index]]).powi(2)/4.0 + (field[[x_index, y_next]] - field[[x_index, y_previous]]).powi(2)/4.0
             };
-    
-            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
-            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
-    
 
             let mut count = 0;
             for _ in 0..max_iter {
@@ -129,9 +174,9 @@ mod horn_schunck_rs {
                         let (Ix, Iy) = space_derive(image1, x_index, y_index);
                         let It = time_derive(image1, image2, x_index, y_index);
                         
-                        next_evaluation += (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It).powi(2) + alpha_squared * get_gradient_norm(&u_field, x_index, y_index) + get_gradient_norm(&v_field, x_index, y_index);
-                        u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
-                        v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
+                        next_evaluation += (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It).powi(2) + get_gradient_norm(&u_field, x_index, y_index) + get_gradient_norm(&v_field, x_index, y_index);
+                        u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * (get_cross_pattern(&u_field, x_index, y_index) - 4.0 * u_field[[x_index, y_index]]));
+                        v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * (get_cross_pattern(&v_field, x_index, y_index) - 4.0 * v_field[[x_index, y_index]]));
                     }
                 }
                 if (next_evaluation - previous_evaluation).abs() < tol {break};
@@ -158,34 +203,18 @@ mod horn_schunck_rs {
                 (field[[x_next, y_index]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_previous, y_index]]).signum() + (field[[x_index, y_next]] - field[[x_index, y_index]]).signum() + (field[[x_index, y_index]] - field[[x_index, y_previous]]).signum()
             };
 
-            let get_gradient_norm = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
-                let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
-                let x_next = (x_index + 1).min(image_height - 1);
-    
-                let y_previous = y_index.saturating_sub(1).clamp(0, image_width - 1);
-                let y_next = (y_index + 1).min(image_width - 1);
-    
-                (field[[x_next, y_index]] - field[[x_previous, y_index]]).powi(2)/4.0 + (field[[x_index, y_next]] - field[[x_index, y_previous]]).powi(2)/4.0
-            };
-
             let mut count = 0;
             for _ in 0..max_iter {
                 count += 1;
-                let mut previous_evaluation: f32 = 0.0;
-                let mut next_evaluation: f32 = 0.0;
                 for x_index in 0..image_height {
                     for y_index in 0..image_width {
                         let (Ix, Iy) = space_derive(image1, x_index, y_index);
                         let It = time_derive(image1, image2, x_index, y_index);
     
-                        next_evaluation += (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It).powi(2) + alpha_squared * get_gradient_norm(&u_field, x_index, y_index) + get_gradient_norm(&v_field, x_index, y_index);
-                        u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
-                        v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
+                        u_field[[x_index, y_index]] -= step * 2.0 * (Ix * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * (get_cross_pattern(&u_field, x_index, y_index) - 4.0 * u_field[[x_index, y_index]]));
+                        v_field[[x_index, y_index]] -= step * 2.0 * (Iy * (Ix * u_field[[x_index, y_index]] + Iy * v_field[[x_index, y_index]] + It) - alpha_squared * (get_cross_pattern(&v_field, x_index, y_index) - 4.0 * v_field[[x_index, y_index]]));
                     }
                 }
-                if (next_evaluation - previous_evaluation).abs() < tol {break};
-                    previous_evaluation = next_evaluation;
-                    next_evaluation = 0.0;
             }
 
             (u_field, v_field, count)
@@ -200,7 +229,7 @@ mod horn_schunck_rs {
             step: f32,
             max_iter: u32,
             tol: f32,
-            norm_l2: bool
+            normL2: bool
         )
         -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>, Py<PyArray1<u32>>) {
             let video_array = video.as_array();
@@ -210,17 +239,17 @@ mod horn_schunck_rs {
             let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
             let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
 
-            let mut counts: Vec<u32> = Vec::with_capacity(frame_count);
+            let mut counts: Vec<u32> = Vec::new();
             for k in 0..frame_count-1 {
                 let current_frame = video_array.index_axis(Axis(0), k);
                 let next_frame = video_array.index_axis(Axis(0), k+1);
 
-                let (u, v, count) = gradient_descent(current_frame, next_frame, alpha_squared, step, max_iter, tol, norm_l2);
+                let (u, v, count) = gradient_descent(current_frame, next_frame, alpha_squared, step, max_iter, tol, normL2);
 
                 u_field.index_axis_mut(Axis(0), k).assign(&u);
                 v_field.index_axis_mut(Axis(0), k).assign(&v);
 
-                counts[k] = count;
+                counts.push(count);
             }
 
             (
@@ -229,10 +258,8 @@ mod horn_schunck_rs {
                 counts.to_pyarray(py).unbind()
             )
         }
+
 }
-
-
-
 
 mod utilities {
     use super::{Pixel};
@@ -288,234 +315,3 @@ mod utilities {
         closer_pixels + further_pixels
     }
 }
-
-// use anyhow::Ok;
-// use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BufferUsages, ComputePassDescriptor, ComputePipelineDescriptor, Device, ExperimentalFeatures, Features, InstanceDescriptor, InstanceFlags, Limits, MemoryBudgetThresholds, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, RequestAdapterOptions, ShaderModule, ShaderModuleDescriptor, ShaderStages, util::{BufferInitDescriptor, DeviceExt}, wgc::device, wgt::{CommandEncoderDescriptor, DeviceDescriptor}};
-
-// async fn solve_jacobi<'py>(
-    //         py: Python<'_>,
-    //         video: PyReadonlyArray3<f32, '_>,
-    //         alpha_squared: f32,
-    //         max_iter: u32,
-    // )
-    // // -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>) 
-    // {
-    //     let gpu = set_up().await.unwrap();
-
-    //     let video_array = video.as_array();
-
-    //     let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
-
-    //     let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
-    //     let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
-
-    //     let num_iterations = frame_count/30usize;
-
-    //     for k in 0..num_iterations {
-    //         let lower_bound: usize = 30 * k;
-    //         let mut upper_bound: usize;
-
-    //         match frame_count {
-    //             frame_count if frame_count <= 30 * (k+1) => {upper_bound = frame_count - lower_bound;}
-    //             _ => {upper_bound = 30 * (k+1);}
-    //         }
-
-            
-    //     }
-    // }
-
-    // async fn jacobi(gpu: &GPU) {
-    //     let u_slice = u_field.as_slice().unwrap();
-    //     let v_slice = v_field.as_slice().unwrap();
-    
-    //     let u_buffer = gpu.device.create_buffer_init(
-    //         &BufferInitDescriptor {
-    //             label: Some("U field"),
-    //             contents: bytemuck::cast_slice(u_slice),
-    //             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-    //         }
-    //     );
-    
-    //     let v_buffer = gpu.device.create_buffer_init(
-    //         &BufferInitDescriptor {
-    //             label: Some("V field"),
-    //             contents: bytemuck::cast_slice(v_slice),
-    //             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-    //         }
-    //     );
-    
-    //     let u_layout = gpu.device.create_bind_group_layout(
-    //         &BindGroupLayoutDescriptor {
-    //             label: Some("U layout descriptor"),
-    //             entries: &[
-    //                 BindGroupLayoutEntry {
-    //                     binding: 0,
-    //                     visibility: ShaderStages::COMPUTE,
-    //                     ty: wgpu::BindingType::Buffer {
-    //                         ty: wgpu::BufferBindingType::Storage {
-    //                             read_only: false
-    //                         },
-    //                         has_dynamic_offset: false,
-    //                         min_binding_size: None
-    //                     },
-    //                     count: None
-    //                 }
-    //             ]
-    //         }
-    //     );
-    
-    //     let v_layout = gpu.device.create_bind_group_layout(
-    //         &BindGroupLayoutDescriptor {
-    //             label: Some("V layout descriptor"),
-    //             entries: &[
-    //                 BindGroupLayoutEntry {
-    //                     binding: 1,
-    //                     visibility: ShaderStages::COMPUTE,
-    //                     ty: wgpu::BindingType::Buffer {
-    //                         ty: wgpu::BufferBindingType::Storage {
-    //                             read_only: false
-    //                         },
-    //                         has_dynamic_offset: false,
-    //                         min_binding_size: None
-    //                     },
-    //                     count: None
-    //                 }
-    //             ]
-    //         }
-    //     );
-    
-    //     let u_bindgroup = gpu.device.create_bind_group(
-    //         &BindGroupDescriptor {
-    //             label: Some("U bind group"),
-    //             layout: &u_layout,
-    //             entries: &[
-    //                 BindGroupEntry {
-    //                     binding: 0,
-    //                     resource: u_buffer.as_entire_binding()
-    //                 }
-    //             ]
-    //         },
-    //     );
-    
-    //     let v_bindgroup = gpu.device.create_bind_group(
-    //         &BindGroupDescriptor {
-    //             label: Some("V bind group"),
-    //             layout: &v_layout,
-    //             entries: &[
-    //                 BindGroupEntry {
-    //                     binding: 1,
-    //                     resource: v_buffer.as_entire_binding()
-    //                 }
-    //             ]
-    //         },
-    //     );
-    
-    //     let pipeline_layout = gpu.device.create_pipeline_layout(
-    //         &PipelineLayoutDescriptor {
-    //             label: Some("Compute pipeline descriptor"),
-    //             bind_group_layouts: &[
-    //                 &u_layout,
-    //                 &v_layout
-    //             ],
-    //             immediate_size: 0
-    //         }
-    //     );
-    
-    //     let compute_module = gpu.device.create_shader_module(
-    //         ShaderModuleDescriptor {
-    //             label: Some("Compute shader module"),
-    //             source: wgpu::ShaderSource::Wgsl("./jacobi_method.wgsl".into())
-    //         }
-    //     );
-    
-    //     let compute_pipeline = gpu.device.create_compute_pipeline(
-    //         &ComputePipelineDescriptor {
-    //             label: Some("Compute pipeline"),
-    //             layout: Some(&pipeline_layout),
-    //             entry_point: Some("main"),
-    //             module: &compute_module,
-    //             compilation_options: PipelineCompilationOptions { 
-    //                 constants: &[],
-    //                 zero_initialize_workgroup_memory: false
-    //             },
-    //             cache: None
-    //         }
-    //     );
-    
-    //     let mut encoder = gpu.device.create_command_encoder(
-    //         &CommandEncoderDescriptor {
-    //             label: Some("Compute command encoder"),
-    //         }
-    //     );
-    
-    //     {
-    //         let mut compute_pass = encoder.begin_compute_pass(
-    //             &ComputePassDescriptor {
-    //                 label: Some("Compute pass"),
-    //                 timestamp_writes: None,
-    //             }
-    //         );
-    //         compute_pass.set_pipeline(&compute_pipeline);
-    //         compute_pass.set_bind_group(0, &u_bindgroup, &[]);
-    //         compute_pass.set_bind_group(0, &v_bindgroup, &[]);
-    //     }
-    
-    //     gpu.queue.submit(std::iter::once(encoder.finish()));
-
-    // }
-
-    // // #[pyclass]
-    // // struct Adam {
-    // //     step_size: f32,
-    // //     beta1: f32,
-    // //     beta2: f32,
-    // //     tol: f32,
-    // //     first_moment: Vec<f32>,
-    // //     second_moment: Vec<f32>,
-    // //     step: u32
-    // // }
-
-    // // #[pymethods]
-    // // impl Adam {
-    // //     #[new]
-    // //     #[pyo3(signature =(step_size=1e-3, beta1=0.99, beta2=0.999, tol=1e-8))]
-    // //     fn new(step_size: f32, beta1: f32, beta2: f32, tol: f32) -> Self {
-    // //         Self { step_size, beta1, beta2, tol, first_moment: Vec::new(), second_moment: Vec::new(), step:0 }
-    // //     }
-    // // }
-
-    // struct GPU {
-    //     device: Device,
-    //     queue: Queue,
-    // }
-    
-    // async fn set_up() -> anyhow::Result<GPU> {
-    //     let instance = wgpu::Instance::new(
-    //             &InstanceDescriptor{
-    //                 backends: wgpu::Backends::PRIMARY,
-    //                 flags: InstanceFlags::DEBUG | InstanceFlags::VALIDATION,
-    //                 ..Default::default()
-    //             }
-    //         );
-    
-    //     let adapter = instance.request_adapter(
-    //         &RequestAdapterOptions{
-    //             power_preference: wgpu::PowerPreference::None,
-    //             force_fallback_adapter: false,
-    //             compatible_surface: None
-    //         }
-    //     ).await?;
-
-    //     let (device, queue) = adapter.request_device(
-    //         &DeviceDescriptor{
-    //             label: Some("Device"),
-    //             required_features: Features::empty(),
-    //             experimental_features: ExperimentalFeatures::disabled(),
-    //             required_limits: Limits::default(),
-    //             memory_hints: Default::default(),
-    //             trace: wgpu::Trace::Off,
-    //         }
-    //     ).await?;
-
-    //     Ok(GPU {device: device, queue: queue})
-    // }
