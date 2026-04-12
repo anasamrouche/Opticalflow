@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
 use numpy::{PyArray3, ndarray::Array2};
 
-type Fields = (Array2<f32>, Array2<f32>);
-type Video = (Py<PyArray3<f32>>, Py<PyArray3<f32>>);
+type Fields = (Array2<f64>, Array2<f64>);
+type Video = (Py<PyArray3<f64>>, Py<PyArray3<f64>>);
 
 #[pymodule]
 mod horn_schunck_rs {
@@ -12,16 +12,16 @@ mod horn_schunck_rs {
     
     use crate::{Fields, Video, utilities::{downscale_recursively, expand, get_average, space_derive, time_derive}};
 
-    fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> Fields {
+    fn gauss_seidel(image1: ArrayView2<'_, f64>, image2: ArrayView2<'_, f64>, alpha_squared: f64, max_iter: u32) -> Fields {
         let image_height = image1.shape()[0];
         let image_width = image1.shape()[1];
 
-        let mut u_field = Array2::<f32>::zeros((image_height, image_width));
-        let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+        let mut u_field = Array2::<f64>::zeros((image_height, image_width));
+        let mut v_field = Array2::<f64>::zeros((image_height, image_width));
         
-        let mut x_derivative = Array2::<f32>::zeros((image_height, image_width));
-        let mut y_derivative = Array2::<f32>::zeros((image_height, image_width));
-        let mut time_derivative = Array2::<f32>::zeros((image_height, image_width));
+        let mut x_derivative = Array2::<f64>::zeros((image_height, image_width));
+        let mut y_derivative = Array2::<f64>::zeros((image_height, image_width));
+        let mut time_derivative = Array2::<f64>::zeros((image_height, image_width));
         for x in 0..image_height {
             for y in 0..image_width {
                 let (dx, dy) = space_derive(image1, x, y);
@@ -52,8 +52,8 @@ mod horn_schunck_rs {
     #[pyfunction]
     fn solve_gauss_seidel<'py>(
             py: Python<'_>,
-            video: PyReadonlyArray3<'_, f32>,
-            alpha_squared: f32,
+            video: PyReadonlyArray3<'_, f64>,
+            alpha_squared: f64,
             max_iter: u32,
         )
         -> Video {
@@ -61,8 +61,8 @@ mod horn_schunck_rs {
 
         let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
 
-        let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
-        let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
+        let mut u_field = Array3::<f64>::zeros((frame_count, frame_height, frame_width));
+        let mut v_field = Array3::<f64>::zeros((frame_count, frame_height, frame_width));
 
         for k in 0..frame_count-1 {
             let current_frame = video_array.index_axis(Axis(0), k);
@@ -80,15 +80,15 @@ mod horn_schunck_rs {
         )
     }
 
-    fn gradient_descent(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, step: f32, max_iter: u32, tol: f32, normL2: bool) -> (Array2<f32>, Array2<f32>, u32) {
+    fn gradient_descent(image1: ArrayView2<'_, f64>, image2: ArrayView2<'_, f64>, alpha_squared: f64, step: f64, max_iter: u32, tol: f64, normL2: bool) -> (Array2<f64>, Array2<f64>, u32) {
         if normL2 {
             let image_height = image1.shape()[0];
             let image_width = image1.shape()[1];
     
-            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
-            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+            let mut u_field = Array2::<f64>::zeros((image_height, image_width));
+            let mut v_field = Array2::<f64>::zeros((image_height, image_width));
     
-            let get_cross_pattern = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
+            let get_cross_pattern = |field: &Array2<f64>, x_index: usize, y_index: usize| -> f64 {
                 let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
                 let x_next = (x_index + 1).min(image_height - 1);
     
@@ -98,7 +98,7 @@ mod horn_schunck_rs {
                 field[[x_previous, y_index]] + field[[x_next, y_index]] + field[[x_index, y_previous]] + field[[x_index, y_next]]
             };
 
-            let get_gradient_norm = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
+            let get_gradient_norm = |field: &Array2<f64>, x_index: usize, y_index: usize| -> f64 {
                 let x_previous = x_index.saturating_sub(1).clamp(0, image_height - 1);
                 let x_next = (x_index + 1).min(image_height - 1);
     
@@ -111,8 +111,8 @@ mod horn_schunck_rs {
             let mut count = 0;
             for _ in 0..max_iter {
                 count += 1;
-                let mut previous_evaluation: f32 = 0.0;
-                let mut next_evaluation: f32 = 0.0;
+                let mut previous_evaluation: f64 = 0.0;
+                let mut next_evaluation: f64 = 0.0;
                 for x_index in 0..image_height {
                     for y_index in 0..image_width {
                         let (Ix, Iy) = space_derive(image1, x_index, y_index);
@@ -134,10 +134,10 @@ mod horn_schunck_rs {
             let image_height = image1.shape()[0];
             let image_width = image1.shape()[1];
     
-            let mut u_field = Array2::<f32>::zeros((image_height, image_width));
-            let mut v_field = Array2::<f32>::zeros((image_height, image_width));
+            let mut u_field = Array2::<f64>::zeros((image_height, image_width));
+            let mut v_field = Array2::<f64>::zeros((image_height, image_width));
     
-            let get_cross_pattern = |field: &Array2<f32>, x_index: usize, y_index: usize| -> f32 {
+            let get_cross_pattern = |field: &Array2<f64>, x_index: usize, y_index: usize| -> f64 {
                 let x_previous = x_index.saturating_sub(2).clamp(0, image_height - 1);
                 let x_next = (x_index + 2).min(image_height - 1);
     
@@ -168,20 +168,20 @@ mod horn_schunck_rs {
     #[pyfunction]
     fn solve_gradient_descent<'py>(
             py: Python<'_>,
-            video: PyReadonlyArray3<'_, f32>,
-            alpha_squared: f32,
-            step: f32,
+            video: PyReadonlyArray3<'_, f64>,
+            alpha_squared: f64,
+            step: f64,
             max_iter: u32,
-            tol: f32,
+            tol: f64,
             normL2: bool
         )
-        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>, Py<PyArray1<u32>>) {
+        -> (Py<PyArray3<f64>>, Py<PyArray3<f64>>, Py<PyArray1<u32>>) {
             let video_array = video.as_array();
 
             let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
 
-            let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
-            let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
+            let mut u_field = Array3::<f64>::zeros((frame_count, frame_height, frame_width));
+            let mut v_field = Array3::<f64>::zeros((frame_count, frame_height, frame_width));
 
             let mut counts: Vec<u32> = Vec::new();
             for k in 0..frame_count-1 {
@@ -203,16 +203,16 @@ mod horn_schunck_rs {
             )
         }
 
-    fn gauss_seidel_from_previous_uv(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, prev_u_field: Array2<f32>, prev_v_field: Array2<f32>, alpha_squared: f32, iter_max: u32) -> Fields {
+    fn gauss_seidel_from_previous_uv(image1: ArrayView2<'_, f64>, image2: ArrayView2<'_, f64>, prev_u_field: Array2<f64>, prev_v_field: Array2<f64>, alpha_squared: f64, iter_max: u32) -> Fields {
         let image_height = image1.shape()[0];
         let image_width = image1.shape()[1];
 
         let mut u_field = prev_u_field;
         let mut v_field = prev_v_field;
         
-        let mut x_derivative = Array2::<f32>::zeros((image_height, image_width));
-        let mut y_derivative = Array2::<f32>::zeros((image_height, image_width));
-        let mut time_derivative = Array2::<f32>::zeros((image_height, image_width));
+        let mut x_derivative = Array2::<f64>::zeros((image_height, image_width));
+        let mut y_derivative = Array2::<f64>::zeros((image_height, image_width));
+        let mut time_derivative = Array2::<f64>::zeros((image_height, image_width));
         for x in 0..image_height {
             for y in 0..image_width {
                 let (dx, dy) = space_derive(image1, x, y);
@@ -240,7 +240,7 @@ mod horn_schunck_rs {
         )
     }
 
-    fn pyramid(recursion_depth: u8, image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, iter_max: u32) -> Fields {
+    fn pyramid(recursion_depth: u8, image1: ArrayView2<'_, f64>, image2: ArrayView2<'_, f64>, alpha_squared: f64, iter_max: u32) -> Fields {
         if recursion_depth == 0 {
             return gauss_seidel(image1, image2, alpha_squared, iter_max);
         }
@@ -290,8 +290,8 @@ mod horn_schunck_rs {
     #[pyfunction]
     fn pyramidal_gauss_seidel<'py>(
             py: Python<'_>,
-            video: PyReadonlyArray3<'_, f32>,
-            alpha_squared: f32,
+            video: PyReadonlyArray3<'_, f64>,
+            alpha_squared: f64,
             max_iter: u32,
             recursion_depth: u8
         )
@@ -300,8 +300,8 @@ mod horn_schunck_rs {
 
         let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
 
-        let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
-        let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
+        let mut u_field = Array3::<f64>::zeros((frame_count, frame_height, frame_width));
+        let mut v_field = Array3::<f64>::zeros((frame_count, frame_height, frame_width));
 
         for k in 0..frame_count-1 {
             let current_frame = video_array.index_axis(Axis(0), k);
@@ -325,7 +325,7 @@ mod utilities {
     use numpy::ndarray::ArrayView2;
 
     
-    pub fn space_derive(image: ArrayView2<'_, f32>, x: usize, y: usize) -> (f32, f32) {
+    pub fn space_derive(image: ArrayView2<'_, f64>, x: usize, y: usize) -> (f64, f64) {
         let image_height = image.shape()[0];
         let image_width = image.shape()[1];
 
@@ -340,8 +340,8 @@ mod utilities {
         //Le problème est que les bords de l'image sont un cas particulier à traiter.
         //Si on est à côté des bords, il ne faut plus diviser la différence.
         //Si on est aux bords, on applique une condition de Neumann pour que la dérivée soit nulle.
-        let x_denominator = (x_next - x_previous) as f32;
-        let y_denominator = (y_next - y_previous) as f32;
+        let x_denominator = (x_next - x_previous) as f64;
+        let y_denominator = (y_next - y_previous) as f64;
 
         let dx = if x_denominator > 0.0 { (image[[x_next, y]] - image[[x_previous, y]])/x_denominator } else { 0.0 };
         let dy = if y_denominator > 0.0 { (image[[x, y_next]] - image[[x, y_previous]])/y_denominator } else { 0.0 };
@@ -349,40 +349,40 @@ mod utilities {
         (dx, dy)
     }
 
-    pub fn time_derive(current_image: ArrayView2<'_, f32>, next_image: ArrayView2<'_, f32>, x: usize, y: usize) -> f32 {
+    pub fn time_derive(current_image: ArrayView2<'_, f64>, next_image: ArrayView2<'_, f64>, x: usize, y: usize) -> f64 {
         next_image[[x, y]] - current_image[[x, y]]
     }
     
-    pub fn get_average(image: ArrayView2<'_, f32>, x: usize, y: usize) -> f32 {
+    pub fn get_average(image: ArrayView2<'_, f64>, x: usize, y: usize) -> f64 {
         let image_height = image.shape()[0];
         let image_width = image.shape()[1];
 
-        let get_clamped = |x_index: usize, y_index: usize| -> f32 {
+        let get_clamped = |x_index: usize, y_index: usize| -> f64 {
             let x_clamped = x_index.clamp(0, image_height - 1);
             let y_clamped = y_index.clamp(0, image_width - 1);
 
             return image[[x_clamped, y_clamped]];
         };
 
-        let closer_f32s = (
+        let closer_f64s = (
             get_clamped(x.saturating_sub(1), y) + get_clamped(x+1, y) + get_clamped(x, y.saturating_sub(1)) + get_clamped(x, y+1)
         )/6.0;
-        let further_f32s = (
+        let further_f64s = (
             get_clamped(x.saturating_sub(1), y.saturating_sub(1)) + get_clamped(x+1, y.saturating_sub(1)) + get_clamped(x+1, y+1) + get_clamped(x.saturating_sub(1), y+1)
         )/12.0;
 
-        closer_f32s + further_f32s
+        closer_f64s + further_f64s
     }
 
-    pub fn get_cross(image: ArrayView2<'_, f32>, x_index: usize, y_index: usize) -> f32 {
+    pub fn get_cross(image: ArrayView2<'_, f64>, x_index: usize, y_index: usize) -> f64 {
         image[[x_index+1, y_index]] + image[[x_index-1, y_index]] + image[[x_index, y_index+1]] + image[[x_index, y_index-1]]
     }
 
-    pub fn get_diagonal(image: ArrayView2<'_, f32>, x_index: usize, y_index: usize) -> f32 {
+    pub fn get_diagonal(image: ArrayView2<'_, f64>, x_index: usize, y_index: usize) -> f64 {
         image[[x_index+1, y_index+1]] + image[[x_index-1, y_index+1]] + image[[x_index+1, y_index-1]] + image[[x_index-1, y_index-1]]
     }
 
-    pub fn expand_f32(upscaled_image: &mut Array2<f32>, value: f32, x_center: usize, y_center: usize) {
+    pub fn expand_f64(upscaled_image: &mut Array2<f64>, value: f64, x_center: usize, y_center: usize) {
         let h = upscaled_image.shape()[0];
         let w = upscaled_image.shape()[1];
         
@@ -398,11 +398,11 @@ mod utilities {
         }
     }
 
-    pub fn downscale(image: ArrayView2<'_, f32>) -> Array2<f32> {
+    pub fn downscale(image: ArrayView2<'_, f64>) -> Array2<f64> {
         let (image_height, image_width) = (image.shape()[0], image.shape()[1]);
         let (new_width, new_height) = ((image_width-3)/3 + 1, (image_height-3)/3 + 1);
 
-        let mut downscaled_image = Array2::<f32>::zeros((new_height, new_width));
+        let mut downscaled_image = Array2::<f64>::zeros((new_height, new_width));
 
         for x in 0..new_height {
             for y in 0..new_width {
@@ -414,8 +414,8 @@ mod utilities {
         downscaled_image
     }
 
-    pub fn downscale_recursively(image: ArrayView2<'_, f32>, recursion_depth: u8) -> Vec<Array2<f32>> {
-        let mut downscaled_images: Vec<Array2<f32>> = vec![downscale(image)];
+    pub fn downscale_recursively(image: ArrayView2<'_, f64>, recursion_depth: u8) -> Vec<Array2<f64>> {
+        let mut downscaled_images: Vec<Array2<f64>> = vec![downscale(image)];
         for k in 0..(recursion_depth as usize).saturating_sub(1) {
             downscaled_images.push(downscale(downscaled_images[k as usize].view()));
         }
@@ -423,9 +423,9 @@ mod utilities {
         downscaled_images
     }
 
-    pub fn expand(downscaled_image: ArrayView2<'_, f32>, target_height: usize, target_width: usize) -> Array2<f32> {
+    pub fn expand(downscaled_image: ArrayView2<'_, f64>, target_height: usize, target_width: usize) -> Array2<f64> {
         let (downscaled_height, downscaled_width) = (downscaled_image.shape()[0], downscaled_image.shape()[1]);
-        let mut expanded_image = Array2::<f32>::zeros((target_height, target_width));
+        let mut expanded_image = Array2::<f64>::zeros((target_height, target_width));
 
         for x_index in 0..downscaled_height {
             for y_index in 0..downscaled_width {
@@ -433,7 +433,7 @@ mod utilities {
                 
                 // Rigueur : on multiplie par 3 car l'échelle est 3 fois plus grande
                 let scaled_value = downscaled_image[[x_index, y_index]] * 3.0;
-                expand_f32(&mut expanded_image, scaled_value, x_expanded_index, y_expanded_index);
+                expand_f64(&mut expanded_image, scaled_value, x_expanded_index, y_expanded_index);
             }
         }
         expanded_image
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn simple_downscale() {
-        let to_downscale: Array2<f32> = array![[2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0]];
+        let to_downscale: Array2<f64> = array![[2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0]];
         let downscaled = downscale(to_downscale.view());
 
         println!("Downscaled values: {:?}", downscaled);
@@ -464,7 +464,7 @@ mod tests {
 
     // #[test]
     // fn downscale_expand() {
-    //     let to_transform: Array2<f32> = array![[2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0]];
+    //     let to_transform: Array2<f64> = array![[2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0]];
     //     let transformed = expand(downscale(to_transform.view()).view());
 
     //     println!("Composed array: {:#?}", transformed);

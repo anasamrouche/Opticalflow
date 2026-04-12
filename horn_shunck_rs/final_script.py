@@ -20,8 +20,8 @@ GS_parameters: Dict[str, List[float|int]] = {
 
 pyramidal_parameters = {
     "alphas": [1e-3, 1e-2, 1e-1],
-    "iteration_limits": [10, 30],
-    "recursion_depth": [2, 4]
+    "iteration_limits": [10],
+    "recursion_depth": [2, 4, 6]
 }
 
 def generate_array_from_path(path: str) -> Dict:
@@ -34,7 +34,7 @@ def generate_array_from_path(path: str) -> Dict:
     frameHeight = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(video.get(cv2.CAP_PROP_FPS))
 
-    video_buffer = np.empty((framesNumber, frameHeight, frameWidth), np.float32)
+    video_buffer = np.empty((framesNumber, frameHeight, frameWidth), np.float64)
 
     count = 0
     while True:
@@ -173,7 +173,6 @@ def generate_videos():
         generate_videos_by_gauss_seidel(video, GS_parameters)
         generate_videos_by_gradient(video, gradient_parameters, True)
         generate_videos_by_gradient(video, gradient_parameters, False)
-    
 
 def generate_pyramidal(parameters: Dict):
     for alpha_squared in parameters["alphas"]:
