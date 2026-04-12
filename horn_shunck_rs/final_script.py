@@ -211,7 +211,7 @@ def generate_videos():
         generate_videos_by_gradient(video, gradient_parameters, False)
         generate_pyramidal(video, pyramidal_parameters)
 
-# generate_videos()
+generate_videos()
 repeat = 15
 times = benchmarks(repeat)
 print(times)
