@@ -49,7 +49,7 @@ def generate_array_from_path(path: str) -> Dict:
             break
     return {"Video_content": video_buffer, "fps": fps, "height": frameHeight, "width": frameWidth}
 
-bus_fight, falling_ball, vapeur = (generate_array_from_path(path) for path in ["./bus_fight.mp4", "./falling_ball.mp4", "./vapeur.mp4"])
+bus_fight, falling_ball, vapeur, tgv = (generate_array_from_path(path) for path in ["./bus_fight.mp4", "./falling_ball.mp4", "./vapeur.mp4", "./TGV_short.mp4"])
 
 def lucas_kanade_sparse(video_path, max_corners=100):
     """
@@ -179,13 +179,13 @@ def generate_pyramidal(parameters: Dict):
     for alpha_squared in parameters["alphas"]:
         for MaxIter in parameters["iteration_limits"]:
             for recursion_depth in parameters["recursion_depth"]:
-                output_name = f"tests/Norm_L2/pyramidal_gauss_seidel/bus_fight_{alpha_squared}_{MaxIter}_{recursion_depth}.mp4"
+                output_name = f"tests/Norm_L2/pyramidal_gauss_seidel/tgv_{alpha_squared}_{MaxIter}_{recursion_depth}.mp4"
 
                 if not os.path.exists(os.path.split(output_name)[0]):
                     os.makedirs(os.path.split(output_name)[0])
-                r.print(f"Résolution de bus fight par méthode pyramidale avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}, profondeur de récursion: {recursion_depth}")
-                optical_flow_x, optical_flow_y = horn_schunck_rs.pyramidal_gauss_seidel(bus_fight["Video_content"], alpha_squared, MaxIter, recursion_depth) 
-                output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), bus_fight["fps"], (bus_fight["width"], bus_fight["height"]), isColor=False) #type: ignore
+                r.print(f"Résolution de tgv par méthode pyramidale avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}, profondeur de récursion: {recursion_depth}")
+                optical_flow_x, optical_flow_y = horn_schunck_rs.pyramidal_gauss_seidel(tgv["Video_content"], alpha_squared, MaxIter, recursion_depth) 
+                output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), tgv["fps"], (tgv["width"], tgv["height"]), isColor=False) #type: ignore
 
                 for frame_x, frame_y in zip(optical_flow_x, optical_flow_y):
                     magnitude = frame_x**2 + frame_y**2
