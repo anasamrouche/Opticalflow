@@ -1,74 +1,18 @@
 use pyo3::prelude::*;
+use numpy::{PyArray3, ndarray::Array2};
 
-type Pixel = f32;
-
+type Fields = (Array2<f32>, Array2<f32>);
+type Video = (Py<PyArray3<f32>>, Py<PyArray3<f32>>);
 
 #[pymodule]
 mod horn_schunck_rs {
-    use anyhow::Ok;
+    use ndarray::Array2;
     use pyo3::prelude::*;
-    use numpy::{IntoPyArray, PyArray1, PyArray3, PyReadonlyArray3, ToPyArray, ndarray::{Array2, Array3, ArrayView2, Axis}};
-    use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BufferUsages, ComputePassDescriptor, ComputePipelineDescriptor, Device, ExperimentalFeatures, Features, InstanceDescriptor, InstanceFlags, Limits, MemoryBudgetThresholds, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, RequestAdapterOptions, ShaderModule, ShaderModuleDescriptor, ShaderStages, util::{BufferInitDescriptor, DeviceExt}, wgc::device, wgt::{CommandEncoderDescriptor, DeviceDescriptor}};
+    use numpy::{IntoPyArray, PyArray1, PyArray3, PyReadonlyArray3, ToPyArray, ndarray::{Array3, ArrayView2, Axis}};
     
-    use crate::{utilities::{get_average, space_derive, time_derive}};
+    use crate::{Fields, Video, utilities::{downscale_recursively, expand, get_average, space_derive, time_derive}};
 
-    // #[pyclass]
-    // struct Adam {
-    //     step_size: f32,
-    //     beta1: f32,
-    //     beta2: f32,
-    //     tol: f32,
-    //     first_moment: Vec<f32>,
-    //     second_moment: Vec<f32>,
-    //     step: u32
-    // }
-
-    // #[pymethods]
-    // impl Adam {
-    //     #[new]
-    //     #[pyo3(signature =(step_size=1e-3, beta1=0.99, beta2=0.999, tol=1e-8))]
-    //     fn new(step_size: f32, beta1: f32, beta2: f32, tol: f32) -> Self {
-    //         Self { step_size, beta1, beta2, tol, first_moment: Vec::new(), second_moment: Vec::new(), step:0 }
-    //     }
-    // }
-
-    // struct GPU {
-    //     device: Device,
-    //     queue: Queue,
-    // }
-    
-    // async fn set_up() -> anyhow::Result<GPU> {
-    //     let instance = wgpu::Instance::new(
-    //             &InstanceDescriptor{
-    //                 backends: wgpu::Backends::PRIMARY,
-    //                 flags: InstanceFlags::DEBUG | InstanceFlags::VALIDATION,
-    //                 ..Default::default()
-    //             }
-    //         );
-    
-    //     let adapter = instance.request_adapter(
-    //         &RequestAdapterOptions{
-    //             power_preference: wgpu::PowerPreference::None,
-    //             force_fallback_adapter: false,
-    //             compatible_surface: None
-    //         }
-    //     ).await?;
-
-    //     let (device, queue) = adapter.request_device(
-    //         &DeviceDescriptor{
-    //             label: Some("Device"),
-    //             required_features: Features::empty(),
-    //             experimental_features: ExperimentalFeatures::disabled(),
-    //             required_limits: Limits::default(),
-    //             memory_hints: Default::default(),
-    //             trace: wgpu::Trace::Off,
-    //         }
-    //     ).await?;
-
-    //     Ok(GPU {device: device, queue: queue})
-    // }
-
-    fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> (Array2<f32>, Array2<f32>) {
+    fn gauss_seidel(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, max_iter: u32) -> Fields {
         let image_height = image1.shape()[0];
         let image_width = image1.shape()[1];
 
@@ -108,11 +52,11 @@ mod horn_schunck_rs {
     #[pyfunction]
     fn solve_gauss_seidel<'py>(
             py: Python<'_>,
-            video: PyReadonlyArray3<f32, '_>,
+            video: PyReadonlyArray3<'_, f32>,
             alpha_squared: f32,
             max_iter: u32,
         )
-        -> (Py<PyArray3<f32>>, Py<PyArray3<f32>>) {
+        -> Video {
         let video_array = video.as_array();
 
         let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
@@ -224,7 +168,7 @@ mod horn_schunck_rs {
     #[pyfunction]
     fn solve_gradient_descent<'py>(
             py: Python<'_>,
-            video: PyReadonlyArray3<f32, '_>,
+            video: PyReadonlyArray3<'_, f32>,
             alpha_squared: f32,
             step: f32,
             max_iter: u32,
@@ -259,14 +203,129 @@ mod horn_schunck_rs {
             )
         }
 
+    fn gauss_seidel_from_previous_uv(image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, prev_u_field: Array2<f32>, prev_v_field: Array2<f32>, alpha_squared: f32, iter_max: u32) -> Fields {
+        let image_height = image1.shape()[0];
+        let image_width = image1.shape()[1];
+
+        let mut u_field = prev_u_field;
+        let mut v_field = prev_v_field;
+        
+        let mut x_derivative = Array2::<f32>::zeros((image_height, image_width));
+        let mut y_derivative = Array2::<f32>::zeros((image_height, image_width));
+        let mut time_derivative = Array2::<f32>::zeros((image_height, image_width));
+        for x in 0..image_height {
+            for y in 0..image_width {
+                let (dx, dy) = space_derive(image1, x, y);
+                x_derivative[[x, y]] = dx;
+                y_derivative[[x, y]] = dy;
+                time_derivative[[x, y]] = time_derive(image1, image2, x, y);
+            }
+        }
+        for _ in 0..iter_max {
+            for x in 0..image_height {
+                for y in 0..image_width {
+                    let u_average = get_average(u_field.view(), x, y);
+                    let v_average = get_average(v_field.view(), x, y);
+
+                    u_field[[x, y]] = u_average - x_derivative[[x, y]] * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powi(2) + y_derivative[[x, y]].powi(2));
+                    v_field[[x, y]] = v_average - y_derivative[[x, y]] * (x_derivative[[x, y]] * u_average + y_derivative[[x, y]] * v_average + time_derivative[[x, y]])/(alpha_squared + x_derivative[[x, y]].powi(2) + y_derivative[[x, y]].powi(2));
+                }
+            }
+        }
+
+
+        (
+            u_field,
+            v_field
+        )
+    }
+
+    fn pyramid(recursion_depth: u8, image1: ArrayView2<'_, f32>, image2: ArrayView2<'_, f32>, alpha_squared: f32, iter_max: u32) -> Fields {
+        if recursion_depth == 0 {
+            return gauss_seidel(image1, image2, alpha_squared, iter_max);
+        }
+
+        let downscaled_images_1 = downscale_recursively(image1, recursion_depth);
+        let downscaled_images_2 = downscale_recursively(image2, recursion_depth);
+
+        // On commence par l'image la plus petite (l'indice le plus élevé du tableau)
+        let coarsest_idx = (recursion_depth - 1) as usize;
+        
+        // On initialise u et v en mutable pour éviter le shadowing dans la boucle
+        let (mut u, mut v) = gauss_seidel(
+            downscaled_images_1[coarsest_idx].view(), 
+            downscaled_images_2[coarsest_idx].view(), 
+            alpha_squared, 
+            iter_max
+        );
+
+        // On remonte la pyramide à l'envers, du niveau N-1 jusqu'au niveau 0
+        for k in (0..coarsest_idx).rev() {
+            let current_image_1 = downscaled_images_1[k].view();
+            let current_image_2 = downscaled_images_2[k].view();
+            
+            let target_shape = (current_image_1.shape()[0], current_image_1.shape()[1]);
+            
+            let expanded_u = expand(u.view(), target_shape.0, target_shape.1);
+            let expanded_v = expand(v.view(), target_shape.0, target_shape.1);
+
+            let (new_u, new_v) = gauss_seidel_from_previous_uv(
+                current_image_1, current_image_2, 
+                expanded_u, expanded_v, 
+                alpha_squared, iter_max
+            );
+            
+            u = new_u;
+            v = new_v;
+        }
+
+        // Étape finale absolue : on affine sur les images d'origine en taille réelle !
+        let target_shape = (image1.shape()[0], image1.shape()[1]);
+        let expanded_u = expand(u.view(), target_shape.0, target_shape.1);
+        let expanded_v = expand(v.view(), target_shape.0, target_shape.1);
+
+        gauss_seidel_from_previous_uv(image1, image2, expanded_u, expanded_v, alpha_squared, iter_max)
+    }
+
+    #[pyfunction]
+    fn pyramidal_gauss_seidel<'py>(
+            py: Python<'_>,
+            video: PyReadonlyArray3<'_, f32>,
+            alpha_squared: f32,
+            max_iter: u32,
+            recursion_depth: u8
+        )
+        -> Video {
+        let video_array = video.as_array();
+
+        let (frame_count, frame_height, frame_width) = (video_array.shape()[0], video_array.shape()[1], video_array.shape()[2]);
+
+        let mut u_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
+        let mut v_field = Array3::<f32>::zeros((frame_count, frame_height, frame_width));
+
+        for k in 0..frame_count-1 {
+            let current_frame = video_array.index_axis(Axis(0), k);
+            let next_frame = video_array.index_axis(Axis(0), k+1);
+
+            let (u, v) = pyramid(recursion_depth, current_frame, next_frame, alpha_squared, max_iter);
+
+            u_field.index_axis_mut(Axis(0), k).assign(&u);
+            v_field.index_axis_mut(Axis(0), k).assign(&v);
+        }
+
+        (
+            u_field.into_pyarray(py).unbind(),
+            v_field.into_pyarray(py).unbind()
+        )
+    }
 }
 
 mod utilities {
-    use super::{Pixel};
+    use ndarray::{Array2,};
     use numpy::ndarray::ArrayView2;
 
     
-    pub fn space_derive(image: ArrayView2<'_, f32>, x: usize, y: usize) -> (Pixel, Pixel) {
+    pub fn space_derive(image: ArrayView2<'_, f32>, x: usize, y: usize) -> (f32, f32) {
         let image_height = image.shape()[0];
         let image_width = image.shape()[1];
 
@@ -290,11 +349,11 @@ mod utilities {
         (dx, dy)
     }
 
-    pub fn time_derive(current_image: ArrayView2<'_, f32>, next_image: ArrayView2<'_, f32>, x: usize, y: usize) -> Pixel {
+    pub fn time_derive(current_image: ArrayView2<'_, f32>, next_image: ArrayView2<'_, f32>, x: usize, y: usize) -> f32 {
         next_image[[x, y]] - current_image[[x, y]]
     }
     
-    pub fn get_average(image: ArrayView2<'_, f32>, x: usize, y: usize) -> Pixel {
+    pub fn get_average(image: ArrayView2<'_, f32>, x: usize, y: usize) -> f32 {
         let image_height = image.shape()[0];
         let image_width = image.shape()[1];
 
@@ -305,13 +364,109 @@ mod utilities {
             return image[[x_clamped, y_clamped]];
         };
 
-        let closer_pixels = (
+        let closer_f32s = (
             get_clamped(x.saturating_sub(1), y) + get_clamped(x+1, y) + get_clamped(x, y.saturating_sub(1)) + get_clamped(x, y+1)
         )/6.0;
-        let further_pixels = (
+        let further_f32s = (
             get_clamped(x.saturating_sub(1), y.saturating_sub(1)) + get_clamped(x+1, y.saturating_sub(1)) + get_clamped(x+1, y+1) + get_clamped(x.saturating_sub(1), y+1)
         )/12.0;
 
-        closer_pixels + further_pixels
+        closer_f32s + further_f32s
     }
+
+    pub fn get_cross(image: ArrayView2<'_, f32>, x_index: usize, y_index: usize) -> f32 {
+        image[[x_index+1, y_index]] + image[[x_index-1, y_index]] + image[[x_index, y_index+1]] + image[[x_index, y_index-1]]
+    }
+
+    pub fn get_diagonal(image: ArrayView2<'_, f32>, x_index: usize, y_index: usize) -> f32 {
+        image[[x_index+1, y_index+1]] + image[[x_index-1, y_index+1]] + image[[x_index+1, y_index-1]] + image[[x_index-1, y_index-1]]
+    }
+
+    pub fn expand_f32(upscaled_image: &mut Array2<f32>, value: f32, x_center: usize, y_center: usize) {
+        let h = upscaled_image.shape()[0];
+        let w = upscaled_image.shape()[1];
+        
+        // Remplacement par des itérations bornées (plus sûr et gère les bords cibles)
+        for dx in 0..=2 {
+            for dy in 0..=2 {
+                let x = x_center.saturating_add(dx).saturating_sub(1);
+                let y = y_center.saturating_add(dy).saturating_sub(1);
+                if x < h && y < w {
+                    upscaled_image[[x, y]] = value;
+                }
+            }
+        }
+    }
+
+    pub fn downscale(image: ArrayView2<'_, f32>) -> Array2<f32> {
+        let (image_height, image_width) = (image.shape()[0], image.shape()[1]);
+        let (new_width, new_height) = ((image_width-3)/3 + 1, (image_height-3)/3 + 1);
+
+        let mut downscaled_image = Array2::<f32>::zeros((new_height, new_width));
+
+        for x in 0..new_height {
+            for y in 0..new_width {
+                let (x_index, y_index) = (x*3+1, y*3+1);
+                downscaled_image[[x, y]] = image[[x_index,y_index]]/4.0 + get_cross(image, x_index, y_index)/8.0 + get_diagonal(image, x_index, y_index)/16.0;
+            }
+        }
+
+        downscaled_image
+    }
+
+    pub fn downscale_recursively(image: ArrayView2<'_, f32>, recursion_depth: u8) -> Vec<Array2<f32>> {
+        let mut downscaled_images: Vec<Array2<f32>> = vec![downscale(image)];
+        for k in 0..(recursion_depth as usize).saturating_sub(1) {
+            downscaled_images.push(downscale(downscaled_images[k as usize].view()));
+        }
+
+        downscaled_images
+    }
+
+    pub fn expand(downscaled_image: ArrayView2<'_, f32>, target_height: usize, target_width: usize) -> Array2<f32> {
+        let (downscaled_height, downscaled_width) = (downscaled_image.shape()[0], downscaled_image.shape()[1]);
+        let mut expanded_image = Array2::<f32>::zeros((target_height, target_width));
+
+        for x_index in 0..downscaled_height {
+            for y_index in 0..downscaled_width {
+                let (x_expanded_index, y_expanded_index) = (x_index*3 + 1, y_index*3 + 1);
+                
+                // Rigueur : on multiplie par 3 car l'échelle est 3 fois plus grande
+                let scaled_value = downscaled_image[[x_index, y_index]] * 3.0;
+                expand_f32(&mut expanded_image, scaled_value, x_expanded_index, y_expanded_index);
+            }
+        }
+        expanded_image
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ndarray::{Array2};
+    use numpy::array;
+    use crate::utilities::{downscale, expand};
+
+    #[test]
+    fn simple_downscale() {
+        let to_downscale: Array2<f32> = array![[2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0]];
+        let downscaled = downscale(to_downscale.view());
+
+        println!("Downscaled values: {:?}", downscaled);
+    }
+
+    // #[test]
+    // fn simple_expand() {
+    //     let to_expand = array![[2.0, 1.0], [1.0, 3.0]];
+    //     let expanded = expand(to_expand.view());
+
+    //     println!("Expanded values{:#?}", expanded);
+    // }
+
+    // #[test]
+    // fn downscale_expand() {
+    //     let to_transform: Array2<f32> = array![[2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0], [1.0, 1.0, 1.0, 3.0, 3.0, 3.0]];
+    //     let transformed = expand(downscale(to_transform.view()).view());
+
+    //     println!("Composed array: {:#?}", transformed);
+    // }
 }

@@ -18,6 +18,12 @@ GS_parameters: Dict[str, List[float|int]] = {
     "iteration_limits": [10, 50],
 }
 
+pyramidal_parameters = {
+    "alphas": [1e-3, 1e-2, 1e-1],
+    "iteration_limits": [10, 30],
+    "recursion_depth": [2, 4]
+}
+
 def generate_array_from_path(path: str) -> Dict:
     video = cv2.VideoCapture(path)
     if not video.isOpened():
@@ -167,9 +173,31 @@ def generate_videos():
         generate_videos_by_gauss_seidel(video, GS_parameters)
         generate_videos_by_gradient(video, gradient_parameters, True)
         generate_videos_by_gradient(video, gradient_parameters, False)
+    
 
+def generate_pyramidal(parameters: Dict):
+    for alpha_squared in parameters["alphas"]:
+        for MaxIter in parameters["iteration_limits"]:
+            for recursion_depth in parameters["recursion_depth"]:
+                output_name = f"tests/Norm_L2/pyramidal_gauss_seidel/bus_fight_{alpha_squared}_{MaxIter}_{recursion_depth}.mp4"
 
-generate_videos()
+                if not os.path.exists(os.path.split(output_name)[0]):
+                    os.makedirs(os.path.split(output_name)[0])
+                r.print(f"Résolution de bus fight par méthode pyramidale avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}, profondeur de récursion: {recursion_depth}")
+                optical_flow_x, optical_flow_y = horn_schunck_rs.pyramidal_gauss_seidel(bus_fight["Video_content"], alpha_squared, MaxIter, recursion_depth) 
+                output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), bus_fight["fps"], (bus_fight["width"], bus_fight["height"]), isColor=False) #type: ignore
+
+                for frame_x, frame_y in zip(optical_flow_x, optical_flow_y):
+                    magnitude = frame_x**2 + frame_y**2
+                    detection = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8) #type: ignore
+                    
+                    output.write(detection)
+                output.release()
+                r.print(f"Fichier {output_name} écrit.", end="\n\n")
+
+generate_pyramidal(pyramidal_parameters)
+
+# generate_videos()
 
 
 # repeat = 5
