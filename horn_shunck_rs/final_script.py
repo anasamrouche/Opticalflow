@@ -12,12 +12,13 @@ import timeit
     enfin la dernière nommée beanchmarks appelle les autres fonctions benchmarks avec timeit.repeat() pour réaliser une moyenne des temps de calcul.
 """
 
-# De façon générale j'aime bien typer les variables Python. Ça alourdit le code et ralentit le temps de production mais ça me permet de détecter certaines erreurs.
-
+# De façon générale je préfère typer les variables Python. Ça alourdit le code et ralentit le temps de production mais ça me permet de détecter certaines erreurs.
 # Les paramètres liés à chaque méthode de traitement des vidéos sont stockés dans des dictionnaires à part les uns des autres
+
+#NE SURTOUT PAS HÉSITER À MODIFIER LES PARAMÈTRES SI LA PRODUCTION EST LONGUE (APPROXIMATIVEMENT UNE HEURE SUR MON ORDINATEUR PERSONNEL)
 gradient_parameters: Dict[str, List[float|int]] = {
     "alphas": [1e-3, 1e-2, 1e-1],
-    "iteration_limits": [30],
+    "iteration_limits": [10],
     "steps": [0.5, 1, 5],
 }
 
@@ -61,7 +62,7 @@ def generate_array_from_path(path: str) -> Dict:
             break
     return {"Video_content": video_buffer, "fps": fps, "height": frameHeight, "width": frameWidth}
 
-bus_fight, falling_ball, vapeur, tgv = (generate_array_from_path(path) for path in ["./bus_fight.mp4", "./falling_ball.mp4", "./vapeur.mp4", "./TGV_short.mp4"])
+bus_fight, falling_ball, vapeur, tgv = (generate_array_from_path(path) for path in ["./bus_fight.mp4", "./falling_ball.mp4", "./vapeur.mp4", "./TGV.mp4"])
 
 def lucas_kanade_sparse(video_path, max_corners=100):
     """
@@ -117,13 +118,14 @@ def generate_videos_by_gradient(video: Dict, parameters: Dict[str, List[float|in
     for alpha_squared in parameters["alphas"]:
         for step in parameters["steps"]:
             for MaxIter in parameters["iteration_limits"]:
-                counts = np.zeros(MaxIter) #type: ignore
                 if video is bus_fight:
                     video_name = "bus_fight"
                 elif video is falling_ball:
                     video_name = "falling_ball"
                 elif video is vapeur:
                     video_name = "vapeur"
+                elif video is tgv:
+                    video_name = "tgv"
                 print(f"Résolution de {video_name} par gradient avec paramètres alpha squared : {alpha_squared}, pas: {step}, itérations max : {MaxIter}")
                 output_name = f"tests/Norm_L2/gradient_results/{video_name}_{alpha_squared}_{MaxIter}_{step}.mp4" if normL2 else f"tests/Norm_L1/gradient_results/{video_name}_{alpha_squared}_{MaxIter}_{step}.mp4"
                 
@@ -131,7 +133,7 @@ def generate_videos_by_gradient(video: Dict, parameters: Dict[str, List[float|in
                 if not os.path.exists(os.path.split(output_name)[0]):
                     os.makedirs(os.path.split(output_name)[0])
                 
-                optical_flow_x, optical_flow_y, counts  = horn_schunck_rs.solve_gradient_descent(video["Video_content"], alpha_squared, step, MaxIter, 1e-3, normL2) #type: ignore
+                optical_flow_x, optical_flow_y = horn_schunck_rs.solve_gradient_descent(video["Video_content"], alpha_squared, step, MaxIter, normL2)
 
                 output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), video["fps"], (video["width"], video["height"]), isColor=False) #type: ignore
                 for frame_x, frame_y in zip(optical_flow_x, optical_flow_y):
@@ -143,7 +145,7 @@ def generate_videos_by_gradient(video: Dict, parameters: Dict[str, List[float|in
                 print(f"Fichier {output_name} écrit.", end="\n\n")
 
 def gradient_benchmark():
-    horn_schunck_rs.solve_gradient_descent(falling_ball["Video_content"], 1, 1e-3, 50, True)
+    horn_schunck_rs.solve_gradient_descent(falling_ball["Video_content"], 1, 1e-3, 10, True)
 
 def generate_videos_by_gauss_seidel(video: Dict, parameters: Dict[str, List[float|int]]):
     for alpha_squared in parameters["alphas"]:
@@ -154,12 +156,14 @@ def generate_videos_by_gauss_seidel(video: Dict, parameters: Dict[str, List[floa
                 video_name = "falling_ball"
             elif video is vapeur:
                 video_name = "vapeur"
+            elif video is tgv:
+                video_name = "tgv"
             output_name = f"tests/Norm_L2/gauss_seidel_results/{video_name}_{alpha_squared}_{MaxIter}.mp4"
             
             if not os.path.exists(os.path.split(output_name)[0]):
                 os.makedirs(os.path.split(output_name)[0])
             print(f"Résolution de {video_name} par Gauss-Seidel avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}")
-            optical_flow_x, optical_flow_y = horn_schunck_rs.solve_gauss_seidel(video["Video_content"], alpha_squared, MaxIter) #type: ignore
+            optical_flow_x, optical_flow_y = horn_schunck_rs.solve_gauss_seidel(video["Video_content"], alpha_squared, MaxIter)
             output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), video["fps"], (video["width"], video["height"]), isColor=False) #type: ignore
 
             for frame_x, frame_y in zip(optical_flow_x, optical_flow_y):
@@ -171,16 +175,16 @@ def generate_videos_by_gauss_seidel(video: Dict, parameters: Dict[str, List[floa
             print(f"Fichier {output_name} écrit.", end="\n\n")
 
 def gauss_seidel_benchmark():
-    horn_schunck_rs.solve_gauss_seidel(falling_ball["Video_content"], 1, 50)
+    horn_schunck_rs.solve_gauss_seidel(falling_ball["Video_content"], 1, 10)
 
 def benchmarks(repeat: int) -> Tuple[ndarray, ndarray, ndarray]:
         lucas_kanade_measured_times = timeit.repeat(lucas_kanade_benchmark, repeat=repeat, number=1)
         gradient_measured_times = timeit.repeat(gradient_benchmark, repeat=repeat, number=1)
         gauss_seidel_measured_times = timeit.repeat(gauss_seidel_benchmark, repeat=repeat, number=1)
 
-        return np.array(lucas_kanade_measured_times), np.array(gradient_measured_times), np.array(gauss_seidel_measured_times)
+        return np.array(lucas_kanade_measured_times), np.array(gradient_measured_times), np.array(gauss_seidel_measured_times), 
 
-def generate_pyramidal(parameters: Dict):
+def generate_pyramidal(video: Dict, parameters: Dict):
     for alpha_squared in parameters["alphas"]:
         for MaxIter in parameters["iteration_limits"]:
             for recursion_depth in parameters["recursion_depth"]:
@@ -189,8 +193,8 @@ def generate_pyramidal(parameters: Dict):
                 if not os.path.exists(os.path.split(output_name)[0]):
                     os.makedirs(os.path.split(output_name)[0])
                 print(f"Résolution de tgv par méthode pyramidale avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}, profondeur de récursion: {recursion_depth}")
-                optical_flow_x, optical_flow_y = horn_schunck_rs.pyramidal_gauss_seidel(tgv["Video_content"], alpha_squared, MaxIter, recursion_depth) 
-                output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), tgv["fps"], (tgv["width"], tgv["height"]), isColor=False) #type: ignore
+                optical_flow_x, optical_flow_y = horn_schunck_rs.pyramidal_gauss_seidel(video["Video_content"], alpha_squared, MaxIter, recursion_depth) 
+                output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), video["fps"], (video["width"], video["height"]), isColor=False) #type: ignore
 
                 for frame_x, frame_y in zip(optical_flow_x, optical_flow_y):
                     magnitude = frame_x**2 + frame_y**2
@@ -201,14 +205,16 @@ def generate_pyramidal(parameters: Dict):
                 print(f"Fichier {output_name} écrit.", end="\n\n")
 
 def generate_videos():
-    for video in bus_fight, falling_ball, vapeur:
+    for video in  [tgv, bus_fight, falling_ball, vapeur]:
         generate_videos_by_gauss_seidel(video, GS_parameters)
         generate_videos_by_gradient(video, gradient_parameters, True)
         generate_videos_by_gradient(video, gradient_parameters, False)
-    generate_pyramidal(pyramidal_parameters)
+        generate_pyramidal(video, pyramidal_parameters)
 
 # generate_videos()
-repeat = 2
+repeat = 15
 times = benchmarks(repeat)
-print(f"Moyenne de lucas-kanade : {times[0].mean()}\nMoyenne du gradient : {times[1].mean()}\nMoyenne de Gauss-Seidel : {times[2].mean()}\nSur {repeat} itérations.")
-print(f"Lucas-kanade a été en moyenne plus rapide de {times[1].mean()/times[0].mean()} comparé à la descente de gradient et {times[1].mean()/times[0].mean()} comparé à Gauss-Seidel.")
+print(times)
+print(f"Moyenne de Lucas-Kanade : {times[0].mean()}\nMoyenne du gradient : {times[1].mean()}\nMoyenne de Gauss-Seidel : {times[2].mean()}\nSur {repeat} itérations.")
+print(f"Écarts-type des temps : {np.std(times, axis=1)}")
+print(f"Lucas-Kanade a été en moyenne {times[1].mean()/times[0].mean()} plus rapide comparé à la descente de gradient et {times[2].mean()/times[0].mean()} comparé à Gauss-Seidel.")

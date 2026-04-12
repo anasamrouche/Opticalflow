@@ -130,6 +130,7 @@ mod horn_schunck_rs {
                     + field[[x_next, y_index]]
                     + field[[x_index, y_previous]]
                     + field[[x_index, y_next]]
+                    -4.0*field[[x_index, y_index]]
             };
 
             for _ in 0..max_iter {
@@ -145,8 +146,7 @@ mod horn_schunck_rs {
                                     + iy * v_field[[x_index, y_index]]
                                     + it)
                                 - alpha_squared
-                                    * (get_cross_pattern(&u_field, x_index, y_index)
-                                        - 4.0 * u_field[[x_index, y_index]]));
+                                    * get_cross_pattern(&u_field, x_index, y_index));
                         v_field[[x_index, y_index]] -= step
                             * 2.0
                             * (iy
@@ -154,8 +154,7 @@ mod horn_schunck_rs {
                                     + iy * v_field[[x_index, y_index]]
                                     + it)
                                 - alpha_squared
-                                    * (get_cross_pattern(&v_field, x_index, y_index)
-                                        - 4.0 * v_field[[x_index, y_index]]));
+                                    * get_cross_pattern(&v_field, x_index, y_index));
                     }
                 }
             }
@@ -192,19 +191,17 @@ mod horn_schunck_rs {
                             * (ix
                                 * (ix * u_field[[x_index, y_index]]
                                     + iy * v_field[[x_index, y_index]]
-                                    + it)
+                                    + it))
                                 - alpha_squared
-                                    * (get_cross_pattern(&u_field, x_index, y_index)
-                                        - 4.0 * u_field[[x_index, y_index]]));
+                                    * (get_cross_pattern(&u_field, x_index, y_index));
                         v_field[[x_index, y_index]] -= step
                             * 2.0
                             * (iy
                                 * (ix * u_field[[x_index, y_index]]
                                     + iy * v_field[[x_index, y_index]]
-                                    + it)
+                                    + it))
                                 - alpha_squared
-                                    * (get_cross_pattern(&v_field, x_index, y_index)
-                                        - 4.0 * v_field[[x_index, y_index]]));
+                                    * (get_cross_pattern(&v_field, x_index, y_index));
                     }
                 }
             }
