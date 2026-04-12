@@ -1,6 +1,6 @@
 [package]
 name = "horn_schunck_rs"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,6 +9,6 @@ name = "horn_schunck_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-ndarray = { version = "0.17.2", features = ["rayon"] }
+ndarray = "0.17.2"
 numpy = "0.28.0"
-pyo3 = { version = "0.28.2", features = ["experimental-async"] }
+pyo3 = "0.28.2"

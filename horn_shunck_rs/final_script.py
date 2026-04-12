@@ -2,11 +2,19 @@ import os
 import horn_schunck_rs
 import numpy as np
 from numpy import ndarray
-import rich as r
 import cv2
 from typing import Dict, List, Tuple
 import timeit
 
+"""
+    Pour les benchmarks j'ai décidé de tester et comparer les méthodes non-pyramidales.
+    Le test utilise trois fonctions : une qui définit la production de vidéos en prenant des paramètres en entrée, puis une sans paramètre qui appelle simplement la première avec les mêmes paramètres quelle que soit la méthode employée
+    enfin la dernière nommée beanchmarks appelle les autres fonctions benchmarks avec timeit.repeat() pour réaliser une moyenne des temps de calcul.
+"""
+
+# De façon générale j'aime bien typer les variables Python. Ça alourdit le code et ralentit le temps de production mais ça me permet de détecter certaines erreurs.
+
+# Les paramètres liés à chaque méthode de traitement des vidéos sont stockés dans des dictionnaires à part les uns des autres
 gradient_parameters: Dict[str, List[float|int]] = {
     "alphas": [1e-3, 1e-2, 1e-1],
     "iteration_limits": [30],
@@ -18,13 +26,17 @@ GS_parameters: Dict[str, List[float|int]] = {
     "iteration_limits": [10, 50],
 }
 
-pyramidal_parameters = {
+pyramidal_parameters: Dict[str, List[float|int]] = {
     "alphas": [1e-3, 1e-2, 1e-1],
     "iteration_limits": [10],
     "recursion_depth": [2, 4, 6]
 }
 
 def generate_array_from_path(path: str) -> Dict:
+    """
+    Création d'un dictionnaire représentant le contenu de la vidéo sous forme de numpy array ainsi que ses métadonnées pour pouvoir produire les vidéos de détection de mouvement.
+    J'aurais pu créer une classe d'objets mais pour une utilisation ponctuelle comme celle-ci je n'y ai pas vraiment vu d'intérêt.
+    """
     video = cv2.VideoCapture(path)
     if not video.isOpened():
         raise FileNotFoundError(f"La vidéo n'a pas été ouverte")
@@ -112,8 +124,8 @@ def generate_videos_by_gradient(video: Dict, parameters: Dict[str, List[float|in
                     video_name = "falling_ball"
                 elif video is vapeur:
                     video_name = "vapeur"
-                r.print(f"Résolution de {video_name} par gradient avec paramètres alpha squared : {alpha_squared}, pas: {step}, itérations max : {MaxIter}")
-                output_name = f"tests/Norm_L2/gradient_results/{video_name}_{alpha_squared}_{step}_{MaxIter}.mp4" if normL2 else f"tests/Norm_L1/gradient_results/{video_name}_{alpha_squared}_{step}_{MaxIter}.mp4"
+                print(f"Résolution de {video_name} par gradient avec paramètres alpha squared : {alpha_squared}, pas: {step}, itérations max : {MaxIter}")
+                output_name = f"tests/Norm_L2/gradient_results/{video_name}_{alpha_squared}_{MaxIter}_{step}.mp4" if normL2 else f"tests/Norm_L1/gradient_results/{video_name}_{alpha_squared}_{MaxIter}_{step}.mp4"
                 
                 #Création du dossier si le chemin n'existe pas déjà
                 if not os.path.exists(os.path.split(output_name)[0]):
@@ -128,10 +140,10 @@ def generate_videos_by_gradient(video: Dict, parameters: Dict[str, List[float|in
                     
                     output.write(detection)
                 output.release()
-                r.print(f"Fichier {output_name} écrit.", end="\n\n")
+                print(f"Fichier {output_name} écrit.", end="\n\n")
 
 def gradient_benchmark():
-    horn_schunck_rs.solve_gradient_descent(falling_ball["Video_content"], 1, 1e-3, 50, 1e-8, True)
+    horn_schunck_rs.solve_gradient_descent(falling_ball["Video_content"], 1, 1e-3, 50, True)
 
 def generate_videos_by_gauss_seidel(video: Dict, parameters: Dict[str, List[float|int]]):
     for alpha_squared in parameters["alphas"]:
@@ -146,7 +158,7 @@ def generate_videos_by_gauss_seidel(video: Dict, parameters: Dict[str, List[floa
             
             if not os.path.exists(os.path.split(output_name)[0]):
                 os.makedirs(os.path.split(output_name)[0])
-            r.print(f"Résolution de {video_name} par Gauss-Seidel avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}")
+            print(f"Résolution de {video_name} par Gauss-Seidel avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}")
             optical_flow_x, optical_flow_y = horn_schunck_rs.solve_gauss_seidel(video["Video_content"], alpha_squared, MaxIter) #type: ignore
             output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), video["fps"], (video["width"], video["height"]), isColor=False) #type: ignore
 
@@ -156,7 +168,7 @@ def generate_videos_by_gauss_seidel(video: Dict, parameters: Dict[str, List[floa
                 
                 output.write(detection)
             output.release()
-            r.print(f"Fichier {output_name} écrit.", end="\n\n")
+            print(f"Fichier {output_name} écrit.", end="\n\n")
 
 def gauss_seidel_benchmark():
     horn_schunck_rs.solve_gauss_seidel(falling_ball["Video_content"], 1, 50)
@@ -168,12 +180,6 @@ def benchmarks(repeat: int) -> Tuple[ndarray, ndarray, ndarray]:
 
         return np.array(lucas_kanade_measured_times), np.array(gradient_measured_times), np.array(gauss_seidel_measured_times)
 
-def generate_videos():
-    for video in bus_fight, falling_ball, vapeur:
-        generate_videos_by_gauss_seidel(video, GS_parameters)
-        generate_videos_by_gradient(video, gradient_parameters, True)
-        generate_videos_by_gradient(video, gradient_parameters, False)
-
 def generate_pyramidal(parameters: Dict):
     for alpha_squared in parameters["alphas"]:
         for MaxIter in parameters["iteration_limits"]:
@@ -182,7 +188,7 @@ def generate_pyramidal(parameters: Dict):
 
                 if not os.path.exists(os.path.split(output_name)[0]):
                     os.makedirs(os.path.split(output_name)[0])
-                r.print(f"Résolution de tgv par méthode pyramidale avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}, profondeur de récursion: {recursion_depth}")
+                print(f"Résolution de tgv par méthode pyramidale avec paramètres alpha squared : {alpha_squared}, itérations max : {MaxIter}, profondeur de récursion: {recursion_depth}")
                 optical_flow_x, optical_flow_y = horn_schunck_rs.pyramidal_gauss_seidel(tgv["Video_content"], alpha_squared, MaxIter, recursion_depth) 
                 output = cv2.VideoWriter(f"{output_name}", cv2.VideoWriter_fourcc(*"mp4v"), tgv["fps"], (tgv["width"], tgv["height"]), isColor=False) #type: ignore
 
@@ -192,14 +198,17 @@ def generate_pyramidal(parameters: Dict):
                     
                     output.write(detection)
                 output.release()
-                r.print(f"Fichier {output_name} écrit.", end="\n\n")
+                print(f"Fichier {output_name} écrit.", end="\n\n")
 
-generate_pyramidal(pyramidal_parameters)
+def generate_videos():
+    for video in bus_fight, falling_ball, vapeur:
+        generate_videos_by_gauss_seidel(video, GS_parameters)
+        generate_videos_by_gradient(video, gradient_parameters, True)
+        generate_videos_by_gradient(video, gradient_parameters, False)
+    generate_pyramidal(pyramidal_parameters)
 
 # generate_videos()
-
-
-# repeat = 5
-# times = benchmarks(repeat)
-# r.print(f"Moyenne de lucas-kanade : {times[0].mean()}\nMoyenne du gradient : {times[1].mean()}\nMoyenne de Gauss-Seidel : {times[2].mean()}\nSur {repeat} itérations.")
-# r.print(f"Lucas-kanade a été en moyenne plus rapide de {times[1].mean()/times[0].mean()} comparé à la descente de gradient et {times[1].mean()/times[0].mean()} comparé à Gauss-Seidel.")
+repeat = 2
+times = benchmarks(repeat)
+print(f"Moyenne de lucas-kanade : {times[0].mean()}\nMoyenne du gradient : {times[1].mean()}\nMoyenne de Gauss-Seidel : {times[2].mean()}\nSur {repeat} itérations.")
+print(f"Lucas-kanade a été en moyenne plus rapide de {times[1].mean()/times[0].mean()} comparé à la descente de gradient et {times[1].mean()/times[0].mean()} comparé à Gauss-Seidel.")
