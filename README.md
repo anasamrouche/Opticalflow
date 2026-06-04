@@ -38,4 +38,4 @@ Vous n'avez plus qu'à installer dans votre environnement virtuel les modules du
 ```
 
 ## Les méthodes supportées pour l'instant
-Pour l'instant la descente de gradient a été implémentée pour les normes L1 et L2 et est la seule dans ce cas. Celles basées sur Gauss-Seidel optimise seulement la fonctionnelle basée sur la norme L2.
+Pour l'instant la descente de gradient a été implémentée pour les normes L1 et L2 et est la seule dans ce cas. Celles basées sur Gauss-Seidel optimisent seulement la fonctionnelle basée sur la norme L2.
