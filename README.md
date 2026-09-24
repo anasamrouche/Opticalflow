@@ -1,6 +1,6 @@
 # Opticalflow
 
-Module écrit en Rust pour la détection de mouvements avec la fonctionnelle d'énergie de Horn-Schunck par diverses méthodes (Gauss-Seidel simple et pyramidal, descente de gradient).
+Module écrit en Rust pour la détection de mouvements dans un flux vidéo en optimisant la fonctionnelle d'énergie de Horn-Schunck par diverses méthodes (Gauss-Seidel simple et pyramidal, descente de gradient).
 ## Installation
 
 Pour compiler le module, vous pouvez installer la chaîne de compilation de Rust.
