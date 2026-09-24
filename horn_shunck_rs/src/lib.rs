@@ -1,17 +1,40 @@
 use numpy::{PyArray3, ndarray::Array2};
 use pyo3::prelude::*;
 
+mod camera;
+mod gpu;
+
 type Fields = (Array2<f64>, Array2<f64>);
 type Video = (Py<PyArray3<f64>>, Py<PyArray3<f64>>);
 
 #[pymodule]
 mod horn_schunck_rs {
+    use crate::gpu::*;
     use ndarray::Array2;
     use numpy::{
         IntoPyArray, PyReadonlyArray3,
         ndarray::{Array3, ArrayView2, Axis},
     };
     use pyo3::prelude::*;
+    use winit::event_loop::EventLoop;
+
+    #[pyfunction]
+    fn real_time_detection(alpha_squared: f32) -> Result<(), PyErr> {
+        env_logger::init();
+        let build_event_loop = EventLoop::builder().build();
+        match build_event_loop {
+            Ok(event_loop) => {
+                let mut app = Application::new(FlowParams::new(alpha_squared));
+                let _ = event_loop.run_app(&mut app);
+                Ok(())
+            }
+            Err(err) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                    err.to_string(),
+                ));
+            }
+        }
+    }
 
     use crate::{
         Fields, Video,
@@ -130,7 +153,7 @@ mod horn_schunck_rs {
                     + field[[x_next, y_index]]
                     + field[[x_index, y_previous]]
                     + field[[x_index, y_next]]
-                    -4.0*field[[x_index, y_index]]
+                    - 4.0 * field[[x_index, y_index]]
             };
 
             for _ in 0..max_iter {
@@ -145,16 +168,14 @@ mod horn_schunck_rs {
                                 * (ix * u_field[[x_index, y_index]]
                                     + iy * v_field[[x_index, y_index]]
                                     + it)
-                                - alpha_squared
-                                    * get_cross_pattern(&u_field, x_index, y_index));
+                                - alpha_squared * get_cross_pattern(&u_field, x_index, y_index));
                         v_field[[x_index, y_index]] -= step
                             * 2.0
                             * (iy
                                 * (ix * u_field[[x_index, y_index]]
                                     + iy * v_field[[x_index, y_index]]
                                     + it)
-                                - alpha_squared
-                                    * get_cross_pattern(&v_field, x_index, y_index));
+                                - alpha_squared * get_cross_pattern(&v_field, x_index, y_index));
                     }
                 }
             }
@@ -192,16 +213,14 @@ mod horn_schunck_rs {
                                 * (ix * u_field[[x_index, y_index]]
                                     + iy * v_field[[x_index, y_index]]
                                     + it))
-                                - alpha_squared
-                                    * (get_cross_pattern(&u_field, x_index, y_index));
+                            - alpha_squared * (get_cross_pattern(&u_field, x_index, y_index));
                         v_field[[x_index, y_index]] -= step
                             * 2.0
                             * (iy
                                 * (ix * u_field[[x_index, y_index]]
                                     + iy * v_field[[x_index, y_index]]
                                     + it))
-                                - alpha_squared
-                                    * (get_cross_pattern(&v_field, x_index, y_index));
+                            - alpha_squared * (get_cross_pattern(&v_field, x_index, y_index));
                     }
                 }
             }
